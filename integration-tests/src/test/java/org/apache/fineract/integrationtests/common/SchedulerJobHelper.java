@@ -32,13 +32,13 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.fineract.client.feign.services.SchedulerJobApi.RetrieveHistoryQueryParams;
-import org.apache.fineract.client.models.CommandProcessingResult;
 import org.apache.fineract.client.models.ExecuteJobRequest;
 import org.apache.fineract.client.models.GetJobsJobIDJobRunHistoryResponse;
 import org.apache.fineract.client.models.GetJobsResponse;
 import org.apache.fineract.client.models.GetSchedulerResponse;
 import org.apache.fineract.client.models.JobDetailHistoryDataSwagger;
-import org.apache.fineract.client.models.PutJobsJobIDRequest;
+import org.apache.fineract.client.models.JobUpdateRequest;
+import org.apache.fineract.client.models.JobUpdateResponse;
 import org.hamcrest.MatcherAssert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,12 +96,12 @@ public final class SchedulerJobHelper {
 
     public static Map<String, Object> updateSchedulerJob(int jobId, final boolean active) {
         LOG.info("------------------------ UPDATING SCHEDULER JOB -------------------------");
-        CommandProcessingResult response = ok(() -> FineractFeignClientHelper.getFineractFeignClient().schedulerJob()
-                .updateJobDetail((long) jobId, new PutJobsJobIDRequest().active(active)));
+        JobUpdateResponse response = ok(() -> FineractFeignClientHelper.getFineractFeignClient().schedulerJob()
+                .updateJobDetail((long) jobId, new JobUpdateRequest().active(active)));
         return response.getChanges();
     }
 
-    public static void updateSchedulerJob(long jobId, PutJobsJobIDRequest request) {
+    public static void updateSchedulerJob(long jobId, JobUpdateRequest request) {
         ok(() -> FineractFeignClientHelper.getFineractFeignClient().schedulerJob().updateJobDetail(jobId, request));
     }
 
