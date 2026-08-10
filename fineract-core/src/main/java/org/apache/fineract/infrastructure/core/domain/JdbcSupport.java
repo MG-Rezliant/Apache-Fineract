@@ -26,6 +26,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.OffsetTime;
 import java.time.ZonedDateTime;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.springframework.jdbc.support.JdbcUtils;
@@ -63,6 +64,10 @@ public final class JdbcSupport {
             localTime = timeValue.toLocalDateTime().toLocalTime();
         }
         return localTime;
+    }
+
+    public static OffsetTime getOffsetTime(final ResultSet rs, final String columnName) throws SQLException {
+        return rs.getObject(columnName, OffsetTime.class);
     }
 
     public static Long getLong(final ResultSet rs, final String columnName) throws SQLException {

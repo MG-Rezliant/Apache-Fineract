@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.jobs.service.increasedateby1day.incre
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -70,10 +71,23 @@ class IncreaseCobDateBy1DayTaskletTest {
     @Test
     public void shouldBusinessDateJobBeProcessedWhenBusinessDateIsEnabled() throws Exception {
         given(configurationDomainService.isBusinessDateEnabled()).willReturn(true);
+        given(configurationDomainService.isCOBDateAdjustmentEnabled()).willReturn(false);
 
         RepeatStatus repeatStatus = underTest.execute(stepContribution, chunkContext);
 
         verify(businessDateWritePlatformService, times(1)).increaseDateByTypeByOneDay(BusinessDateType.COB_DATE);
+        assertEquals(RepeatStatus.FINISHED, repeatStatus);
+    }
+
+    @Test
+    public void shouldCobDateJobBeSkippedWhenAutomaticCobDateAdjustmentIsEnabled() throws Exception {
+        given(configurationDomainService.isBusinessDateEnabled()).willReturn(true);
+        given(configurationDomainService.isCOBDateAdjustmentEnabled()).willReturn(true);
+
+        RepeatStatus repeatStatus = underTest.execute(stepContribution, chunkContext);
+
+        verify(stepContribution, times(1)).setExitStatus(ExitStatus.NOOP);
+        verify(businessDateWritePlatformService, never()).increaseDateByTypeByOneDay(BusinessDateType.COB_DATE);
         assertEquals(RepeatStatus.FINISHED, repeatStatus);
     }
 

@@ -39,7 +39,11 @@ public class IncreaseCobDateBy1DayTasklet implements Tasklet {
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
         if (configurationDomainService.isBusinessDateEnabled()) {
-            businessDateWritePlatformService.increaseDateByTypeByOneDay(BusinessDateType.COB_DATE);
+            if (configurationDomainService.isCOBDateAdjustmentEnabled()) {
+                contribution.setExitStatus(ExitStatus.NOOP);
+            } else {
+                businessDateWritePlatformService.increaseDateByTypeByOneDay(BusinessDateType.COB_DATE);
+            }
         } else {
             contribution.setExitStatus(ExitStatus.NOOP);
         }

@@ -31,6 +31,7 @@ import static org.apache.fineract.portfolio.savings.SavingsApiConstants.routingC
 import static org.apache.fineract.portfolio.savings.SavingsApiConstants.transactionAccountNumberParamName;
 import static org.apache.fineract.portfolio.savings.SavingsApiConstants.transactionAmountParamName;
 import static org.apache.fineract.portfolio.savings.SavingsApiConstants.transactionDateParamName;
+import static org.apache.fineract.portfolio.savings.SavingsApiConstants.transactionTimeParamName;
 import static org.apache.fineract.portfolio.savings.SavingsApiConstants.withdrawBalanceParamName;
 
 import com.google.gson.JsonElement;
@@ -111,8 +112,9 @@ public class SavingsAccountTransactionDataValidator {
         }
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
-        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json,
-                SavingsAccountConstant.SAVINGS_ACCOUNT_TRANSACTION_REQUEST_DATA_PARAMETERS);
+        final Set<String> supportedParameters = new HashSet<>(SavingsAccountConstant.SAVINGS_ACCOUNT_TRANSACTION_REQUEST_DATA_PARAMETERS);
+        supportedParameters.add(transactionTimeParamName);
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParameters);
 
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors)
@@ -122,6 +124,7 @@ public class SavingsAccountTransactionDataValidator {
 
         final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(transactionDateParamName, element);
         baseDataValidator.reset().parameter(transactionDateParamName).value(transactionDate).notNull();
+        this.fromApiJsonHelper.extractOffsetTimeNamed(transactionTimeParamName, element);
 
         final BigDecimal transactionAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(transactionAmountParamName, element);
         baseDataValidator.reset().parameter(transactionAmountParamName).value(transactionAmount).notNull().positiveAmount();
