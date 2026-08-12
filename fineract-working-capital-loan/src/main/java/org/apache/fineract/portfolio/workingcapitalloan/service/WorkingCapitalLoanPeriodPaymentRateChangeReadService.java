@@ -20,8 +20,16 @@ package org.apache.fineract.portfolio.workingcapitalloan.service;
 
 import java.util.List;
 import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanPeriodPaymentRateChangeData;
+import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoan;
 
 public interface WorkingCapitalLoanPeriodPaymentRateChangeReadService {
 
+    /** Looks the loan up first, so an unknown id is reported as a not-found rather than as an empty history. */
     List<WorkingCapitalLoanPeriodPaymentRateChangeData> retrieveRateChangeHistory(Long loanId);
+
+    /**
+     * The same history for a loan the caller already holds. Skips the existence check the id-based method has to make -
+     * it is on the fetch-loan-details path, which every working capital business event serializes through.
+     */
+    List<WorkingCapitalLoanPeriodPaymentRateChangeData> retrieveRateChangeHistory(WorkingCapitalLoan loan);
 }

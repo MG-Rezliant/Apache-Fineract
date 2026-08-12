@@ -23,6 +23,8 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 public record WorkingCapitalLoanPeriodPaymentRateChangeData(Long id, Long loanId, LocalDate effectiveDate, BigDecimal previousRate,
-        BigDecimal newRate, boolean reversed, LocalDate reversedOnDate, OffsetDateTime createdDate) {
+        BigDecimal newRate, boolean reversed, LocalDate reversedOnDate, OffsetDateTime createdDate, BigDecimal eir,
+        BigDecimal calculatedAnnualEir, BigDecimal netDisbursementAmount, BigDecimal discountAmount, BigDecimal dailyPaymentAmount,
+        Integer segmentTotalDays) {
 
 }

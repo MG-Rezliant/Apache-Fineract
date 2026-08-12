@@ -636,6 +636,51 @@ public final class ProjectedAmortizationScheduleModel {
     }
 
     /**
+     * Payment period a rate change effective on {@code rateChangeDate} starts on. Converts the calendar-day distance
+     * from disbursement to a period number via the first-period offset (0 when a disbursement-date repayment shifted
+     * the grid), else the new rate would start one day early. Clamped to the schedule term, which keeps growing past
+     * the contractual end while the loan runs on, so a change dated at or after the current end of the schedule starts
+     * on the final period.
+     */
+    private int splitDayIndexFor(final LocalDate rateChangeDate) {
+        final int rawSplitDayIndex = (int) ChronoUnit.DAYS.between(expectedDisbursementDate, rateChangeDate);
+        if (rawSplitDayIndex < 0) {
+            throw new IllegalArgumentException("rateChangeDate must not be before expectedDisbursementDate");
+        }
+        return Math.min(rawSplitDayIndex + (1 - currentFirstPeriodDayOffset()), scheduleTerm());
+    }
+
+    /**
+     * The segment a rate change effective on {@code rateChangeDate} opened, resolved through the same date-to-period
+     * conversion {@link #applyRateChange} uses to place it. Matched on the exact start period rather than on "the
+     * segment covering that day": a re-derivation that lands elsewhere - the schedule has since been rebuilt around a
+     * term that clamps differently, or the change was never replayed into this model - has no segment of its own, and
+     * answering with a neighbour's numbers would put another change's EIR on it. Null in that case, and while the
+     * schedule has no segments at all.
+     */
+    public RateSegment segmentOpenedOn(final LocalDate rateChangeDate) {
+        Objects.requireNonNull(rateChangeDate, "rateChangeDate");
+        if (rateSegments == null) {
+            return null;
+        }
+        final int startDayIndex = splitDayIndexFor(rateChangeDate);
+        return rateSegments.stream().filter(segment -> segment.startDayIndex() == startDayIndex).findFirst().orElse(null);
+    }
+
+    /**
+     * Annualises a daily effective interest rate as {@code (1 + dailyEir)^npvDayCount - 1}. The year is measured in the
+     * same day count that prices the daily payment, so the two cannot be chosen independently: a product that bills a
+     * 360-day year has to quote its annual rate over one too. Null when there is no EIR yet, and when the day count is
+     * unset - an annual rate is undefined without a year to express it in, and a default would only hide that.
+     */
+    public static BigDecimal annualiseEir(final BigDecimal dailyEir, final int npvDayCount, final MathContext mc) {
+        if (dailyEir == null || npvDayCount <= 0) {
+            return null;
+        }
+        return BigDecimal.ONE.add(dailyEir, mc).pow(npvDayCount, mc).subtract(BigDecimal.ONE, mc);
+    }
+
+    /**
      * Applies a rate change at the given date. Adds a {@link RateSegment} covering the remaining term from the change
      * date forward. The model is mutated in-place; the payment list is rebuilt.
      *
@@ -658,16 +703,7 @@ public final class ProjectedAmortizationScheduleModel {
         // catch-up machinery would bill them as missed and the NPV would be taken from the wrong periods.
         final LocalDate reachedDate = currentDate != null && rateChangeDate.isAfter(currentDate) ? currentDate : rateChangeDate;
         updateCalculatedTillDate(reachedDate);
-        final int rawSplitDayIndex = (int) ChronoUnit.DAYS.between(expectedDisbursementDate, rateChangeDate);
-        if (rawSplitDayIndex < 0) {
-            throw new IllegalArgumentException("rateChangeDate must not be before expectedDisbursementDate");
-        }
-
-        // Segment starts on the period whose date == rateChangeDate. Convert the calendar-day rawSplitDayIndex
-        // to a period number via the first-period offset (0 when a disbursement-date repayment shifted the grid),
-        // else the new rate starts one day early. Clamped to the active (effective) term so a change at/after the
-        // current end of an already-segmented schedule starts on the final period.
-        final int splitDayIndex = Math.min(rawSplitDayIndex + (1 - currentFirstPeriodDayOffset()), scheduleTerm());
+        final int splitDayIndex = splitDayIndexFor(rateChangeDate);
 
         // Remove existing segments at or after split (supports overwrite on second rate change)
         // Guard against null rateSegments from V1 model deserialization

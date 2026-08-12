@@ -315,7 +315,7 @@ public class WorkingCapitalLoanAmortizationScheduleWriteServiceImpl implements W
     }
 
     @Override
-    public void regenerateAmortizationScheduleOnRateChange(final WorkingCapitalLoan loan) {
+    public ProjectedAmortizationScheduleModel regenerateAmortizationScheduleOnRateChange(final WorkingCapitalLoan loan) {
         Validate.notNull(loan, "loan must not be null");
 
         final MathContext mc = MoneyHelper.getMathContext();
@@ -342,6 +342,7 @@ public class WorkingCapitalLoanAmortizationScheduleWriteServiceImpl implements W
         }
 
         scheduleRepositoryWrapper.writeModel(loan, model);
+        return model;
     }
 
     @Override
