@@ -658,6 +658,7 @@ Feature: WorkingCapitalAmortizationSchedule
       | 210       | 2019-07-30 | 47.22                 | 19.84           | 0.07                       |                     |                          | 0.15                       |               |                          |
       | 211       | 2019-07-31 | 19.86                 | 0.00            | 0.15                       |                     |                          | 0.00                       |               |                          |
 
+  @TestRailId:C98180
   Scenario: Generate a projected amortization schedule whose final payment is a smaller remainder - UC3
     When Admin sets the business date to "01 January 2019"
     And Admin creates a client with random data
@@ -680,7 +681,10 @@ Feature: WorkingCapitalAmortizationSchedule
       | 210       | 2019-07-30 | 47.22                 | 83.68           | 0.13                       | 0.06                       |
       | 211       | 2019-07-31 | 47.22                 | 36.54           | 0.06                       | 0.00                       |
       | 212       | 2019-08-01 | 36.58                 | 0.00            | 0.00                       | 0.00                       |
+    And The retrieved amortization schedule has no negative amounts
+    And The retrieved amortization schedule expected amortization sums to the discount fee and both expected balances close to zero
 
+  @TestRailId:C98181
   Scenario: Generate a projected amortization schedule matching reference - UC4
     When Admin sets the business date to "01 January 2026"
     And Admin creates a client with random data
