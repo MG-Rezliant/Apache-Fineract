@@ -28,10 +28,12 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.client.feign.FineractFeignClient;
 import org.apache.fineract.client.feign.services.WorkingCapitalLoansApi;
+import org.apache.fineract.client.models.GetWorkingCapitalLoansLoanIdResponse;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansResponse;
 import org.apache.fineract.client.models.ProjectedAmortizationScheduleData;
 import org.apache.fineract.client.models.ProjectedAmortizationScheduleGenerateRequest;
@@ -197,6 +199,87 @@ public class WorkingCapitalAmortizationScheduleStepDef extends AbstractStepDef {
         }
 
         assertions.assertAll();
+    }
+
+    @Then("The retrieved amortization schedule has no negative amounts")
+    public void verifyRetrievedScheduleHasNoNegativeAmounts() {
+        final ProjectedAmortizationScheduleData response = TestContext.INSTANCE.get(WC_AMORT_SCHEDULE_KEY);
+        assertThat(response).as("Amortization schedule response").isNotNull();
+        final SoftAssertions assertions = new SoftAssertions();
+        for (final ProjectedAmortizationSchedulePaymentData payment : response.getPayments()) {
+            if (payment.getPaymentNo() == 0) {
+                continue; // disbursement row carries the negated disbursement by design
+            }
+            final String p = "payment[" + payment.getPaymentNo() + "].";
+            assertNonNegative(assertions, p + "expectedPaymentAmount", payment.getExpectedPaymentAmount());
+            assertNonNegative(assertions, p + "expectedBalance", payment.getExpectedBalance());
+            assertNonNegative(assertions, p + "expectedAmortizationAmount", payment.getExpectedAmortizationAmount());
+            assertNonNegative(assertions, p + "expectedDiscountFeeBalance", payment.getExpectedDiscountFeeBalance());
+            assertNonNegative(assertions, p + "actualPaymentAmount", payment.getActualPaymentAmount());
+            assertNonNegative(assertions, p + "actualAmortizationAmount", payment.getActualAmortizationAmount());
+            assertNonNegative(assertions, p + "actualDiscountFeeBalance", payment.getActualDiscountFeeBalance());
+        }
+        assertions.assertAll();
+    }
+
+    @Then("The retrieved amortization schedule expected amortization sums to the discount fee and both expected balances close to zero")
+    public void verifyRetrievedScheduleExpectedAmortizationClosesToDiscountFee() {
+        final ProjectedAmortizationScheduleData response = TestContext.INSTANCE.get(WC_AMORT_SCHEDULE_KEY);
+        assertThat(response).as("Amortization schedule response").isNotNull();
+        final List<ProjectedAmortizationSchedulePaymentData> rows = response.getPayments().stream().filter(p -> p.getPaymentNo() > 0)
+                .toList();
+        assertThat(rows).as("payment rows").isNotEmpty();
+        final BigDecimal amortizationSum = sum(rows, ProjectedAmortizationSchedulePaymentData::getExpectedAmortizationAmount);
+        final BigDecimal paymentSum = sum(rows, ProjectedAmortizationSchedulePaymentData::getExpectedPaymentAmount);
+        final ProjectedAmortizationSchedulePaymentData last = rows.getLast();
+        final SoftAssertions assertions = new SoftAssertions();
+        assertions.assertThat(amortizationSum).as("sum(expectedAmortizationAmount) == discountFeeAmount")
+                .isEqualByComparingTo(response.getDiscountFeeAmount());
+        assertions.assertThat(paymentSum).as("sum(expectedPaymentAmount) == netDisbursementAmount + discountFeeAmount")
+                .isEqualByComparingTo(response.getNetDisbursementAmount().add(response.getDiscountFeeAmount()));
+        assertions.assertThat(last.getExpectedBalance()).as("last expectedBalance").isEqualByComparingTo(BigDecimal.ZERO);
+        assertions.assertThat(last.getExpectedDiscountFeeBalance()).as("last expectedDiscountFeeBalance")
+                .isEqualByComparingTo(BigDecimal.ZERO);
+        assertions.assertAll();
+    }
+
+    @Then("The retrieved amortization schedule actual amortization is consistent with the loan realized and unrealized income")
+    public void verifyRetrievedScheduleActualAmortizationMatchesLoanIncome() {
+        final ProjectedAmortizationScheduleData response = TestContext.INSTANCE.get(WC_AMORT_SCHEDULE_KEY);
+        assertThat(response).as("Amortization schedule response").isNotNull();
+        final List<ProjectedAmortizationSchedulePaymentData> paidRows = response.getPayments().stream()
+                .filter(p -> p.getPaymentNo() > 0 && p.getActualPaymentAmount() != null).toList();
+        assertThat(paidRows).as("paid rows").isNotEmpty();
+        final BigDecimal actualAmortizationSum = sum(paidRows, ProjectedAmortizationSchedulePaymentData::getActualAmortizationAmount);
+        final ProjectedAmortizationSchedulePaymentData lastPaid = paidRows.getLast();
+
+        final GetWorkingCapitalLoansLoanIdResponse loan = fineractFeignClient.workingCapitalLoans()
+                .retrieveWorkingCapitalLoanById(extractLoanId());
+        assertThat(loan.getBalance()).as("loan balance").isNotNull();
+        final BigDecimal realized = loan.getBalance().getRealizedIncomeFromDiscountFee();
+        final BigDecimal unrealized = loan.getBalance().getUnrealizedIncomeFromDiscountFee();
+
+        final SoftAssertions assertions = new SoftAssertions();
+        assertions.assertThat(actualAmortizationSum).as("sum(actualAmortizationAmount) == loan realizedIncomeFromDiscountFee")
+                .isEqualByComparingTo(realized);
+        assertions.assertThat(lastPaid.getActualDiscountFeeBalance())
+                .as("last paid row actualDiscountFeeBalance == loan unrealizedIncomeFromDiscountFee").isEqualByComparingTo(unrealized);
+        assertions.assertThat(realized.add(unrealized)).as("realized + unrealized == schedule discountFeeAmount")
+                .isEqualByComparingTo(response.getDiscountFeeAmount());
+        assertions.assertThat(realized).as("realized income must never exceed the discount fee")
+                .isLessThanOrEqualTo(response.getDiscountFeeAmount());
+        assertions.assertAll();
+    }
+
+    private static BigDecimal sum(final List<ProjectedAmortizationSchedulePaymentData> rows,
+            final Function<ProjectedAmortizationSchedulePaymentData, BigDecimal> getter) {
+        return rows.stream().map(getter).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static void assertNonNegative(final SoftAssertions assertions, final String field, final BigDecimal value) {
+        if (value != null) {
+            assertions.assertThat(value).as(field + " must not be negative").isGreaterThanOrEqualTo(BigDecimal.ZERO);
+        }
     }
 
     public void checkSummaryFields(final SoftAssertions assertions, ProjectedAmortizationScheduleData response,
