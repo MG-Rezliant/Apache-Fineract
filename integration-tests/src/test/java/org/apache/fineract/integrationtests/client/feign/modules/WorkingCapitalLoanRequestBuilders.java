@@ -132,6 +132,27 @@ public final class WorkingCapitalLoanRequestBuilders {
         return repayment(amount, transactionDate);
     }
 
+    public static PostWorkingCapitalLoanTransactionsRequest payoutRefund(BigDecimal amount, String transactionDate) {
+        return repayment(amount, transactionDate);
+    }
+
+    public static PostWorkingCapitalLoanTransactionsRequest chargeOff(String transactionDate, String note) {
+        final PostWorkingCapitalLoanTransactionsRequest request = new PostWorkingCapitalLoanTransactionsRequest()
+                .transactionDate(transactionDate).locale(LOCALE).dateFormat(DATE_FORMAT);
+        if (note != null) {
+            request.note(note);
+        }
+        return request;
+    }
+
+    public static PostWorkingCapitalLoanTransactionsRequest undoChargeOff(String note) {
+        final PostWorkingCapitalLoanTransactionsRequest request = new PostWorkingCapitalLoanTransactionsRequest().locale(LOCALE);
+        if (note != null) {
+            request.note(note);
+        }
+        return request;
+    }
+
     public static ExecuteWorkingCapitalLoanTransactionCommandRequest reversal() {
         return new ExecuteWorkingCapitalLoanTransactionCommandRequest();
     }
