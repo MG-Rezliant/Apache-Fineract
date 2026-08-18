@@ -19,8 +19,7 @@
 package org.apache.fineract.portfolio.workingcapitalloan.service;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoan;
@@ -36,6 +35,7 @@ public class WorkingCapitalLoanBreachResetServiceImpl implements WorkingCapitalL
 
     private final WorkingCapitalLoanBreachScheduleRepository breachScheduleRepository;
     private final WorkingCapitalLoanBreachScheduleService breachScheduleService;
+    private final WorkingCapitalLoanActiveBreachResetResolver activeBreachResetResolver;
 
     @Override
     public void resetBreach(final WorkingCapitalLoan loan, final WorkingCapitalLoanBreachAction resetAction) {
@@ -44,14 +44,8 @@ public class WorkingCapitalLoanBreachResetServiceImpl implements WorkingCapitalL
             return;
         }
 
-        final List<WorkingCapitalLoanBreachSchedule> periods = breachScheduleRepository.findByLoanIdOrderByPeriodNumberAsc(loan.getId());
-        if (Boolean.TRUE.equals(resetAction.getRestartPeriodFromResetDate()) && !periods.isEmpty()
-                && !periods.getLast().getFromDate().isEqual(actionDate)) {
-            final WorkingCapitalLoanBreachSchedule lastPeriod = periods.getLast();
-            lastPeriod.setToDate(actionDate.minusDays(1));
-            lastPeriod.setNumberOfDays((int) ChronoUnit.DAYS.between(lastPeriod.getFromDate(), lastPeriod.getToDate()) + 1);
-            breachScheduleService.generateNextPeriodIfNeeded(loan, actionDate);
-            breachScheduleService.reprocessBreachSchedule(loan);
+        if (Boolean.TRUE.equals(resetAction.getRestartPeriodFromResetDate())) {
+            breachScheduleService.splitPeriodAtReset(loan, actionDate);
         }
 
         breachScheduleRepository.findByLoanIdAndFromDateLessThanEqualAndToDateGreaterThanEqual(loan.getId(), actionDate, actionDate)
@@ -63,14 +57,50 @@ public class WorkingCapitalLoanBreachResetServiceImpl implements WorkingCapitalL
 
     @Override
     public void undoResetBreach(final WorkingCapitalLoan loan, final WorkingCapitalLoanBreachAction undoResetAction) {
-        final LocalDate actionDate = undoResetAction.getStartDate();
-        if (actionDate == null) {
+        if (undoResetAction.getStartDate() == null) {
             return;
         }
-        breachScheduleRepository.findByLoanIdAndFromDateLessThanEqualAndToDateGreaterThanEqual(loan.getId(), actionDate, actionDate)
-                .filter(WorkingCapitalLoanBreachSchedule::isReset).ifPresent(period -> {
+        // The reset this undo cancels is the latest one still active before the undo was recorded.
+        final Optional<WorkingCapitalLoanBreachAction> undoneReset = activeBreachResetResolver.findResetUndoneBy(loan.getId(),
+                undoResetAction);
+        // The flag sits on the period the reset date fell into, which is not the period holding the undo date once the
+        // schedule has moved on since the reset.
+        final LocalDate flaggedDate = undoneReset.map(WorkingCapitalLoanBreachAction::getStartDate)
+                .orElseGet(undoResetAction::getStartDate);
+        breachScheduleRepository.findByLoanIdAndFromDateLessThanEqualAndToDateGreaterThanEqual(loan.getId(), flaggedDate, flaggedDate)
+                .filter(WorkingCapitalLoanBreachSchedule::isReset).or(() -> findLatestFlaggedPeriod(loan.getId(), flaggedDate))
+                .ifPresent(period -> {
                     period.setReset(false);
                 });
-        breachScheduleService.recalculatePastDueAmount(loan);
+
+        if (!restoreSplitPeriodOfUndoneReset(loan, undoneReset)) {
+            breachScheduleService.recalculatePastDueAmount(loan);
+        }
+    }
+
+    /**
+     * The flagged period when the reset date no longer points at the row carrying the flag. Period boundaries are
+     * rewritten whenever the schedule is recalculated - a pause recorded after the reset does exactly that - while the
+     * flag stays on its original row, so the reset date can fall into a different, unflagged period. Resets are undone
+     * in LIFO order, the undone reset is always the latest active one, so the row to clear is the last flagged period.
+     */
+    private Optional<WorkingCapitalLoanBreachSchedule> findLatestFlaggedPeriod(final Long loanId, final LocalDate flaggedDate) {
+        final Optional<WorkingCapitalLoanBreachSchedule> latestFlaggedPeriod = breachScheduleRepository
+                .findTopByLoanIdAndResetTrueOrderByPeriodNumberDesc(loanId);
+        latestFlaggedPeriod.ifPresent(period -> log.debug(
+                "No period flagged as reset covers {} on working capital loan {}, the period boundaries were rewritten since the reset; clearing the flag on the latest flagged period {} instead",
+                flaggedDate, loanId, period.getPeriodNumber()));
+        return latestFlaggedPeriod;
+    }
+
+    /**
+     * Reverts the period split of the reset this undo cancels. Only a reset performed with the restart period option
+     * can have split a period, and even then only when its reset date fell inside a period. A reverted split leaves the
+     * schedule consistent on its own, so nothing further is needed from here.
+     */
+    private boolean restoreSplitPeriodOfUndoneReset(final WorkingCapitalLoan loan,
+            final Optional<WorkingCapitalLoanBreachAction> undoneReset) {
+        return undoneReset.filter(reset -> Boolean.TRUE.equals(reset.getRestartPeriodFromResetDate()))
+                .map(reset -> breachScheduleService.restoreSplitPeriod(loan, reset.getStartDate())).orElse(false);
     }
 }

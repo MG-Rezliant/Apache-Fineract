@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -37,19 +38,39 @@ public class WorkingCapitalLoanActiveBreachResetResolver {
     private final WorkingCapitalLoanBreachActionRepository breachActionRepository;
 
     public Optional<WorkingCapitalLoanBreachAction> findLatestActiveReset(final Long workingCapitalLoanId) {
-        List<WorkingCapitalLoanBreachAction> filtereredList = breachActionRepository.findByLoanAndActionType(workingCapitalLoanId,
-                List.of(WorkingCapitalLoanBreachActionType.RESET, WorkingCapitalLoanBreachActionType.UNDO_RESET));
-        Deque<WorkingCapitalLoanBreachAction> queue = new ArrayDeque<>();
-        filtereredList.forEach(action -> {
-            if (action.getAction().equals(WorkingCapitalLoanBreachActionType.RESET)) {
-                queue.push(action);
-            } else if (action.getAction().equals(WorkingCapitalLoanBreachActionType.UNDO_RESET)) {
-                if (!queue.isEmpty()) {
-                    queue.pop();
-                }
+        final Deque<WorkingCapitalLoanBreachAction> queue = new ArrayDeque<>();
+        findResetActions(workingCapitalLoanId).forEach(action -> replay(queue, action));
+        return Optional.ofNullable(queue.peek());
+    }
+
+    /**
+     * The reset that the given undo action cancels. The undo row is persisted before the undo is processed, so
+     * {@link #findLatestActiveReset} has already popped that reset by the time the undo runs and would return the
+     * previous one; the replay here therefore stops at the undo action itself.
+     */
+    public Optional<WorkingCapitalLoanBreachAction> findResetUndoneBy(final Long workingCapitalLoanId,
+            final WorkingCapitalLoanBreachAction undoResetAction) {
+        final Deque<WorkingCapitalLoanBreachAction> queue = new ArrayDeque<>();
+        for (final WorkingCapitalLoanBreachAction action : findResetActions(workingCapitalLoanId)) {
+            if (Objects.equals(action.getId(), undoResetAction.getId())) {
+                break;
             }
-        });
-        return queue.isEmpty() ? Optional.empty() : Optional.of(queue.peek());
+            replay(queue, action);
+        }
+        return Optional.ofNullable(queue.peek());
+    }
+
+    private List<WorkingCapitalLoanBreachAction> findResetActions(final Long workingCapitalLoanId) {
+        return breachActionRepository.findByLoanAndActionType(workingCapitalLoanId,
+                List.of(WorkingCapitalLoanBreachActionType.RESET, WorkingCapitalLoanBreachActionType.UNDO_RESET));
+    }
+
+    private void replay(final Deque<WorkingCapitalLoanBreachAction> queue, final WorkingCapitalLoanBreachAction action) {
+        if (WorkingCapitalLoanBreachActionType.RESET.equals(action.getAction())) {
+            queue.push(action);
+        } else if (WorkingCapitalLoanBreachActionType.UNDO_RESET.equals(action.getAction()) && !queue.isEmpty()) {
+            queue.pop();
+        }
     }
 
     public boolean hasActiveReset(final Long workingCapitalLoanId) {

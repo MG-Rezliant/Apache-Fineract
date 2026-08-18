@@ -44,6 +44,8 @@ public interface WorkingCapitalLoanBreachScheduleRepository extends JpaRepositor
 
     Optional<WorkingCapitalLoanBreachSchedule> findTopByLoanIdAndBreachTrueOrderByFromDateAsc(Long loanId);
 
+    Optional<WorkingCapitalLoanBreachSchedule> findTopByLoanIdAndResetTrueOrderByPeriodNumberDesc(Long loanId);
+
     /**
      * The not yet breached period covering the business date. Periods are built contiguously, so at most one of them
      * can cover a given date.

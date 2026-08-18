@@ -792,14 +792,13 @@ Feature: Working Capital Breach Reset and Undo Reset
       | 2            | 2026-03-02 | 2026-04-14 | 44           | 400.00           | 400.00            | true   | false |
       | 3            | 2026-04-15 | 2026-06-13 | 60           | 400.00           | 400.00            | null   | true  |
     And Working Capital loan balance has breach past due amount "0"
-    # --- Undo the reset: only the reset flag is lifted, the period split created by the restart option remains ---
+    # --- Undo the reset: the period split created by the restart option is reverted, period 2 is restored ---
     When Admin creates WC breach undo reset action
     Then Working Capital loan breach schedule has the following data:
       | periodNumber | fromDate   | toDate     | numberOfDays | minPaymentAmount | outstandingAmount | breach | reset |
       | 1            | 2026-01-01 | 2026-03-01 | 60           | 400.00           | 100.00            | true   | false |
-      | 2            | 2026-03-02 | 2026-04-14 | 44           | 400.00           | 400.00            | true   | false |
-      | 3            | 2026-04-15 | 2026-06-13 | 60           | 400.00           | 400.00            | null   | false |
-    And Working Capital loan balance has breach past due amount "500"
+      | 2            | 2026-03-02 | 2026-04-30 | 60           | 400.00           | 400.00            | null   | false |
+    And Working Capital loan balance has breach past due amount "100"
     And WC loan breach actions have the following data:
       | action     | startDate     |
       | RESET      | 15 April 2026 |
