@@ -30,7 +30,6 @@ public interface WorkingCapitalLoanNearBreachActionMapper {
 
     @Mapping(target = "loanId", source = "workingCapitalLoan.id")
     @Mapping(target = "frequencyType", expression = "java(entity.getFrequencyType() != null ? entity.getFrequencyType().name() : null)")
-    @Mapping(target = "createdDate", expression = "java(entity.getCreatedDate().orElse(null))")
     WorkingCapitalLoanNearBreachActionData toData(WorkingCapitalLoanNearBreachAction entity);
 
     List<WorkingCapitalLoanNearBreachActionData> toDataList(List<WorkingCapitalLoanNearBreachAction> entities);

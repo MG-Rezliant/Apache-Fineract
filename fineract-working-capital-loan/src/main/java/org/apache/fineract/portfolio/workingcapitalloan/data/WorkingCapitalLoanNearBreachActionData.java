@@ -19,10 +19,10 @@
 package org.apache.fineract.portfolio.workingcapitalloan.data;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.NearBreachActionType;
 
 public record WorkingCapitalLoanNearBreachActionData(Long id, Long loanId, NearBreachActionType action, BigDecimal threshold,
-        Integer frequency, String frequencyType, OffsetDateTime createdDate) {
+        Integer frequency, String frequencyType, LocalDate submittedOnDate) {
 
 }
