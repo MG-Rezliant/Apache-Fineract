@@ -158,7 +158,9 @@ public class WorkingCapitalLoanTransactionProcessor {
     }
 
     public void triggerInlineAmortizationIfLoanClosed(final WorkingCapitalLoan loan, final LocalDate transactionDate) {
-        if ((loan.getLoanStatus().isClosed() || loan.getLoanStatus().isOverpaid())
+        // deliberately the status predicate, not the entity's isClosed(): that one also covers isCancelled(), which
+        // would fire discount-fee amortization for rejected/withdrawn loans that were never disbursed
+        if ((loan.getLoanStatus().isClosed() || loan.isOverpaid())
                 && loan.getLoanProduct().getAccountingRule().isAccrualWithDeferredRevenueAmortization()) {
             final BigDecimal discount = loan.getLoanProductRelatedDetails() != null ? loan.getLoanProductRelatedDetails().getDiscount()
                     : null;

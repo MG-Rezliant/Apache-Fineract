@@ -21,14 +21,18 @@ package org.apache.fineract.integrationtests.client.feign.modules;
 import java.math.BigDecimal;
 import org.apache.fineract.client.models.ChargeRequest;
 import org.apache.fineract.client.models.ExecuteWorkingCapitalLoanTransactionCommandRequest;
+import org.apache.fineract.client.models.MarkWorkingCapitalLoanAsFraudRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoanTransactionsRequest;
+import org.apache.fineract.client.models.PostWorkingCapitalLoansBreachActionRequest;
+import org.apache.fineract.client.models.PostWorkingCapitalLoansDelinquencyActionRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdChargesChargeIdRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdNearBreachActionsRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdNearBreachActionsRequest.NearBreachFrequencyTypeEnum;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansRequest;
 import org.apache.fineract.client.models.PutWorkingCapitalLoansLoanIdRateRequest;
+import org.apache.fineract.client.models.PutWorkingCapitalLoansLoanIdRequest;
 import org.apache.fineract.integrationtests.common.Utils;
 
 public final class WorkingCapitalLoanRequestBuilders {
@@ -48,6 +52,16 @@ public final class WorkingCapitalLoanRequestBuilders {
         return new PostWorkingCapitalLoansRequest().clientId(clientId).productId(productId).principalAmount(principal)
                 .periodPaymentRate(periodPaymentRate).submittedOnDate(submittedOnDate).expectedDisbursementDate(expectedDisbursementDate)
                 .totalPaymentVolume(BigDecimal.valueOf(100000)).locale(LOCALE).dateFormat(DATE_FORMAT);
+    }
+
+    /**
+     * Submission carrying an explicit discount, which lands on the loan as {@code discountProposed}. Only products
+     * whose {@code discountDefault} attribute is overridable accept it.
+     */
+    public static PostWorkingCapitalLoansRequest submitApplicationWithDiscount(Long clientId, Long productId, BigDecimal principal,
+            BigDecimal periodPaymentRate, String submittedOnDate, String expectedDisbursementDate, BigDecimal discountAmount) {
+        return submitApplication(clientId, productId, principal, periodPaymentRate, submittedOnDate, expectedDisbursementDate)
+                .discount(discountAmount);
     }
 
     public static PostWorkingCapitalLoansLoanIdRequest approve(String approvedOnDate, BigDecimal approvedAmount,
@@ -134,5 +148,37 @@ public final class WorkingCapitalLoanRequestBuilders {
 
     public static ExecuteWorkingCapitalLoanTransactionCommandRequest reversal() {
         return new ExecuteWorkingCapitalLoanTransactionCommandRequest();
+    }
+
+    public static PostWorkingCapitalLoansDelinquencyActionRequest delinquencyPause(String startDate, String endDate) {
+        return new PostWorkingCapitalLoansDelinquencyActionRequest().action("pause").startDate(startDate).endDate(endDate).locale(LOCALE)
+                .dateFormat(DATE_FORMAT);
+    }
+
+    public static PostWorkingCapitalLoansDelinquencyActionRequest delinquencyReschedule(Integer frequency, String frequencyType) {
+        return new PostWorkingCapitalLoansDelinquencyActionRequest().action("reschedule").frequency(frequency).frequencyType(frequencyType)
+                .locale(LOCALE).dateFormat(DATE_FORMAT);
+    }
+
+    public static PostWorkingCapitalLoansBreachActionRequest breachPause(String startDate, String endDate) {
+        return new PostWorkingCapitalLoansBreachActionRequest().action("pause").startDate(startDate).endDate(endDate).locale(LOCALE)
+                .dateFormat(DATE_FORMAT);
+    }
+
+    public static PostWorkingCapitalLoansBreachActionRequest breachReset() {
+        return new PostWorkingCapitalLoansBreachActionRequest().action("reset").restartPeriodFromResetDate(Boolean.FALSE).locale(LOCALE)
+                .dateFormat(DATE_FORMAT);
+    }
+
+    public static MarkWorkingCapitalLoanAsFraudRequest markAsFraud(boolean fraud) {
+        return new MarkWorkingCapitalLoanAsFraudRequest().fraud(fraud);
+    }
+
+    public static PutWorkingCapitalLoansLoanIdRequest modifyPrincipal(BigDecimal principal) {
+        return new PutWorkingCapitalLoansLoanIdRequest().principalAmount(principal).locale(LOCALE).dateFormat(DATE_FORMAT);
+    }
+
+    public static PostWorkingCapitalLoanTransactionsRequest undoWriteOff() {
+        return new PostWorkingCapitalLoanTransactionsRequest().locale(LOCALE).dateFormat(DATE_FORMAT);
     }
 }

@@ -35,6 +35,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
@@ -218,6 +219,75 @@ public class WorkingCapitalLoan extends AbstractAuditableWithUTCDateTimeCustom<L
 
     public Long getClientId() {
         return client != null ? client.getId() : null;
+    }
+
+    public boolean isSubmittedAndPendingApproval() {
+        return loanStatus != null && loanStatus.isSubmittedAndPendingApproval();
+    }
+
+    public boolean isNotSubmittedAndPendingApproval() {
+        return !isSubmittedAndPendingApproval();
+    }
+
+    public boolean isApproved() {
+        return loanStatus != null && loanStatus.isApproved();
+    }
+
+    /**
+     * Mirrors {@code Loan.isOpen()}: the loan is in the {@code ACTIVE} state.
+     */
+    public boolean isOpen() {
+        return loanStatus != null && loanStatus.isActive();
+    }
+
+    public boolean isClosed() {
+        return (loanStatus != null && loanStatus.isClosed()) || isCancelled();
+    }
+
+    public boolean isClosedObligationsMet() {
+        return loanStatus != null && loanStatus.isClosedObligationsMet();
+    }
+
+    public boolean isClosedWrittenOff() {
+        return loanStatus != null && loanStatus.isClosedWrittenOff();
+    }
+
+    public boolean isOverpaid() {
+        return loanStatus != null && loanStatus.isOverpaid();
+    }
+
+    /**
+     * Mirrors {@code Loan.isCancelled()}. Working capital loans have no transition to {@code WITHDRAWN_BY_CLIENT}
+     * today, so only the rejected half is reachable; the two-term definition is kept so the predicate stays correct if
+     * withdrawal is ever added.
+     */
+    public boolean isCancelled() {
+        return loanStatus != null && (loanStatus.isRejected() || loanStatus.isWithdrawnByClient());
+    }
+
+    /**
+     * Disbursement is decided by the disbursement detail rows, never by the status: a written-off loan is
+     * {@code CLOSED_WRITTEN_OFF} yet is still disbursed.
+     */
+    public boolean isDisbursed() {
+        return disbursementDetails.stream() //
+                .map(WorkingCapitalLoanDisbursementDetails::getActualDisbursementDate) //
+                .anyMatch(Objects::nonNull);
+    }
+
+    public boolean isNotDisbursed() {
+        return !isDisbursed();
+    }
+
+    /**
+     * The earliest non-null actual disbursement date, or {@code null} when nothing was disbursed yet.
+     */
+    public LocalDate getActualDisbursementDate() {
+        return disbursementDetails.stream() //
+                .map(WorkingCapitalLoanDisbursementDetails::getActualDisbursementDate) //
+                .filter(Objects::nonNull) //
+                .min(LocalDate::compareTo) //
+                .orElse(null);
     }
 
     /**
