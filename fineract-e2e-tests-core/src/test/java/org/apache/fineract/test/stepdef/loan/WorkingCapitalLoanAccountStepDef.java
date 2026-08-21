@@ -2460,6 +2460,17 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
         checkPeriodPaymentRateChangeHistory(data, rateChangesResponse, header, resourceId);
     }
 
+    @Then("Working Capital Loan latest period payment rate change was submitted on the current system date")
+    public void latestPeriodPaymentRateChangeSubmittedOnSystemDate() {
+        final Long loanId = getCreatedLoanId();
+        final List<WorkingCapitalLoanPeriodPaymentRateChangeData> rateChanges = ok(
+                () -> fineractClient.workingCapitalLoans().getWorkingCapitalLoanRateChangeHistoryById(loanId));
+        final WorkingCapitalLoanPeriodPaymentRateChangeData latest = rateChanges.stream()//
+                .max(Comparator.comparing(WorkingCapitalLoanPeriodPaymentRateChangeData::getId))//
+                .orElseThrow(() -> new IllegalStateException(String.format("No rate change found on loan [%s]", loanId)));
+        assertThat(latest.getSubmittedOnDate()).as("submittedOnDate of latest rate change on loan %s", loanId).isEqualTo(Utils.now());
+    }
+
     // ====================================
     // Private Helper Methods
     // ====================================
@@ -4135,6 +4146,8 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
                         : new Utils.DoubleFormatter(rateChangeData.getNewRate().doubleValue()).format());
                 case "Reversed" ->
                     actualValues.add(rateChangeData.getReversed() == null ? null : String.valueOf(rateChangeData.getReversed()));
+                case "Submitted On Date" -> actualValues
+                        .add(rateChangeData.getSubmittedOnDate() == null ? null : FORMATTER.format(rateChangeData.getSubmittedOnDate()));
                 default -> throw new IllegalStateException(String.format("Header name %s cannot be found", headerName));
             }
         }
