@@ -19,6 +19,7 @@
 package org.apache.fineract.test.helper;
 
 import static org.apache.fineract.client.feign.util.FeignCalls.ok;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -76,6 +77,35 @@ public class BusinessDateHelper {
      */
     public LocalDate getBusinessLocalDate() {
         return ok(() -> fineractClient.businessDateManagement().getBusinessDate(BUSINESS_DATE, Map.of())).getDate();
+    }
+
+    /**
+     * Captures the server's effective date immediately before an action that should use the tenant date. The business
+     * date API cannot be used for this because it returns the persisted business-date row even when business date is
+     * disabled. The read-only charge-off template exposes a date resolved through
+     * {@code DateUtils.getBusinessLocalDate} and therefore returns the tenant date while the configuration is disabled.
+     */
+    public void captureCurrentTenantDateBeforeWorkingCapitalAction(final Long loanId) {
+        TestContext.INSTANCE.set(TestContextKey.WORKING_CAPITAL_CURRENT_TENANT_DATE_BEFORE_ACTION,
+                getEffectiveWorkingCapitalDateFromServer(loanId));
+    }
+
+    /**
+     * Accepts the server date captured immediately before or after the action. Usually they are identical; accepting
+     * both makes the assertion deterministic when the action crosses midnight in the tenant timezone.
+     */
+    public void assertStampedOnCurrentTenantDate(final LocalDate actual, final Long loanId, final String description) {
+        final LocalDate tenantDateBeforeAction = TestContext.INSTANCE.get(TestContextKey.WORKING_CAPITAL_CURRENT_TENANT_DATE_BEFORE_ACTION);
+        final LocalDate tenantDateAfterAction = getEffectiveWorkingCapitalDateFromServer(loanId);
+        final LocalDate storedBusinessDate = getBusinessLocalDate();
+
+        assertThat(tenantDateBeforeAction).as("Tenant date must be captured before the Working Capital action").isNotNull();
+        assertThat(actual).as(description).isNotNull().isNotEqualTo(storedBusinessDate).isIn(tenantDateBeforeAction, tenantDateAfterAction);
+    }
+
+    private LocalDate getEffectiveWorkingCapitalDateFromServer(final Long loanId) {
+        return ok(() -> fineractClient.workingCapitalLoanTransactions().retrieveWorkingCapitalLoanActionTemplate(loanId, "chargeOff"))
+                .getChargeOffDate();
     }
 
     public String getBusinessDate() {
