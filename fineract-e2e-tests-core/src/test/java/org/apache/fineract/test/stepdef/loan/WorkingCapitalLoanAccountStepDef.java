@@ -3271,6 +3271,12 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
         validateRepaymentResponse(response, totalOutstanding.doubleValue(), transactionDate, loanId);
     }
 
+    @Then("Admin closes the Working Capital loan with all obligations met with a full repayment on {string}")
+    public void closeObligationsMetWorkingCapitalLoanWithFullRepayment(final String transactionDate) {
+        closeWorkingCapitalLoanWithFullRepayment(transactionDate);
+        loanWCStatus("CLOSED_OBLIGATIONS_MET");
+    }
+
     @Then("Customer fails to make repayment on {string} with {double} EUR transaction amount outcomes with error message")
     public void repaymentWCLoanFailure(final String transactionDate, final double transactionAmount) {
         final Long loanId = getCreatedLoanId();
@@ -3281,12 +3287,6 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
                 .executeWorkingCapitalLoanTransactionById(loanId, "repayment", repaymentRequest));
         assertThat(exception.getStatus()).as(errorMessage).isEqualTo(400);
         assertThat(exception.getDeveloperMessage()).contains(errorMessage);
-    }
-
-    @Then("Admin closes the Working Capital loan with all obligations met with a full repayment on {string}")
-    public void closeObligationsMetWorkingCapitalLoanWithFullRepayment(final String transactionDate) {
-        closeWorkingCapitalLoanWithFullRepayment(transactionDate);
-        loanWCStatus("CLOSED_OBLIGATIONS_MET");
     }
 
     @Then("Customer makes credit balance refund on {string} with {double} transaction amount on Working Capital loan")
