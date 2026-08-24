@@ -67,8 +67,8 @@ dependencies {
     testImplementation 'com.github.spotbugs:spotbugs-annotations'
 
     testImplementation 'com.squareup.retrofit2:retrofit'
-    testImplementation 'io.github.openfeign:feign-core:13.12'
-    testImplementation 'io.github.openfeign:feign-jackson:13.12'
+    testImplementation 'io.github.openfeign:feign-core:13.14'
+    testImplementation 'io.github.openfeign:feign-jackson:13.14'
     testImplementation 'org.apache.httpcomponents:httpclient'
     testImplementation 'org.apache.commons:commons-lang3'
     testImplementation 'com.google.guava:guava'
@@ -82,7 +82,7 @@ dependencies {
     testImplementation 'io.cucumber:cucumber-spring'
     testImplementation 'io.cucumber:cucumber-junit-platform-engine'
 
-    testImplementation 'io.qameta.allure:allure-cucumber7-jvm:2.34.0'
+    testImplementation 'io.qameta.allure:allure-cucumber7-jvm:2.35.4'
 
     testImplementation 'org.assertj:assertj-core'
     testImplementation 'org.junit.jupiter:junit-jupiter-api'
