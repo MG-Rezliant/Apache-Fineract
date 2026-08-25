@@ -32,8 +32,10 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.sun.research.ws.wadl.HTTPMethods;
+import io.github.resilience4j.retry.Retry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,6 +55,7 @@ import org.apache.fineract.cob.data.COBIdAndLastClosedBusinessDate;
 import org.apache.fineract.cob.service.InlineLoanCOBExecutorServiceImpl;
 import org.apache.fineract.cob.service.LoanAccountLockService;
 import org.apache.fineract.cob.service.RetrieveLoanIdService;
+import org.apache.fineract.commands.configuration.RetryConfigurationAssembler;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
@@ -81,7 +84,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-class LoanCOBApiFilterTest {
+public class LoanCOBApiFilterTest {
 
     private LoanCOBApiFilter testObj;
     @InjectMocks
@@ -104,9 +107,12 @@ class LoanCOBApiFilterTest {
     private LoanRescheduleRequestRepository loanRescheduleRequestRepository;
     @Mock
     private RetrieveLoanIdService retrieveIdService;
+    @Mock
+    private RetryConfigurationAssembler retryConfigurationAssembler;
 
     @BeforeEach
     public void setUp() {
+        when(retryConfigurationAssembler.getRetryConfigurationForExecuteCommand()).thenReturn(Retry.ofDefaults("loanCOBApiFilterTest"));
         testObj = new LoanCOBApiFilter(helper);
     }
 
@@ -116,7 +122,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldLoanAndExternalMatchToo() {
+    public void shouldLoanAndExternalMatchToo() {
         String externalId = UUID.randomUUID().toString();
         Assertions.assertTrue(LOAN_PATH_PATTERN.matcher("/v1/loans/12").matches());
         Assertions.assertTrue(LOAN_PATH_PATTERN.matcher("/v1/loans/12?correct=parameter").matches());
@@ -136,7 +142,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldGlimAccountMatch() {
+    public void shouldGlimAccountMatch() {
         Assertions.assertTrue(LOAN_GLIMACCOUNT_PATH_PATTERN.matcher("/v1/loans/glimAccount/12").matches());
         Assertions.assertTrue(LOAN_GLIMACCOUNT_PATH_PATTERN.matcher("/v1/loans/glimAccount/12?additional=parameter").matches());
         Assertions.assertEquals("12", LOAN_GLIMACCOUNT_PATH_PATTERN.matcher("/v1/loans/glimAccount/12").replaceAll("$1"));
@@ -145,7 +151,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenUrlDoesNotMatch() throws ServletException, IOException {
+    public void shouldProceedWhenUrlDoesNotMatch() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -161,7 +167,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenUrlDoesNotMatchWithInvalidLoanId() throws ServletException, IOException {
+    public void shouldProceedWhenUrlDoesNotMatchWithInvalidLoanId() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -189,7 +195,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenUserHasBypassPermission() throws ServletException, IOException {
+    public void shouldProceedWhenUserHasBypassPermission() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -208,7 +214,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenLoanIsNotLockedAndNoLoanIsBehind() throws ServletException, IOException {
+    public void shouldProceedWhenLoanIsNotLockedAndNoLoanIsBehind() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -237,7 +243,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenExternalLoanIsNotLockedAndNotBehind() throws ServletException, IOException {
+    public void shouldProceedWhenExternalLoanIsNotLockedAndNotBehind() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -267,7 +273,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceedWhenRescheduleLoanIsNotLockedAndNotBehind() throws ServletException, IOException {
+    public void shouldProceedWhenRescheduleLoanIsNotLockedAndNotBehind() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -298,7 +304,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldRunInlineCOBAndProceedWhenLoanIsBehind() throws ServletException, IOException {
+    public void shouldRunInlineCOBAndProceedWhenLoanIsBehind() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -332,7 +338,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldNotRunInlineCOBAndProceedWhenLoanIsNotBehind() throws ServletException, IOException {
+    public void shouldNotRunInlineCOBAndProceedWhenLoanIsNotBehind() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -366,7 +372,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldNotRunInlineCOBAndProceedWhenLoanIsBehindForLoanCreation() throws ServletException, IOException {
+    public void shouldNotRunInlineCOBAndProceedWhenLoanIsBehindForLoanCreation() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -386,7 +392,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldNotRunInlineCOBForCatchUp() throws ServletException, IOException {
+    public void shouldNotRunInlineCOBForCatchUp() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -406,7 +412,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldRejectWhenLoanIsHardLocked() throws ServletException, IOException {
+    public void shouldRejectWhenLoanIsHardLocked() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -427,7 +433,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldRejectWhenGlimLoanIsHardLocked() throws ServletException, IOException {
+    public void shouldRejectWhenGlimLoanIsHardLocked() throws ServletException, IOException {
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
         MockHttpServletResponse response = mock(MockHttpServletResponse.class);
         FilterChain filterChain = mock(FilterChain.class);
@@ -451,7 +457,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldThrowAuthenticationCredentialsNotFoundException_WhenUnAuthenticatedUserExceptionIsThrown() throws IOException {
+    public void shouldThrowAuthenticationCredentialsNotFoundException_WhenUnAuthenticatedUserExceptionIsThrown() throws IOException {
         LoanCOBFilterHelper spyHelper = spy(helper);
         testObj = new LoanCOBApiFilter(spyHelper);
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);
@@ -469,7 +475,7 @@ class LoanCOBApiFilterTest {
     }
 
     @Test
-    void shouldProceed_WhenAuthenticatedUser() throws Exception {
+    public void shouldProceed_WhenAuthenticatedUser() throws Exception {
         LoanCOBFilterHelper spyHelper = spy(helper);
         testObj = new LoanCOBApiFilter(spyHelper);
         MockHttpServletRequest request = mock(MockHttpServletRequest.class);

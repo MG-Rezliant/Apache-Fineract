@@ -18,13 +18,25 @@
  */
 package org.apache.fineract.infrastructure.jobs.filter;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
+import jakarta.persistence.OptimisticLockException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.time.Duration;
 import java.util.List;
+import org.apache.fineract.cob.loan.LoanCOBConstant;
 import org.apache.fineract.cob.service.InlineLoanCOBExecutorServiceImpl;
 import org.apache.fineract.cob.service.LoanAccountLockService;
 import org.apache.fineract.cob.service.RetrieveIdService;
+import org.apache.fineract.commands.configuration.RetryConfigurationAssembler;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.http.BodyCachingHttpServletRequestWrapper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -32,7 +44,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepositor
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -57,17 +68,14 @@ public class LoanCOBFilterHelperTest {
     private FineractProperties fineractProperties;
     @Mock
     private RetrieveIdService retrieveIdService;
+    @Mock
+    private RetryConfigurationAssembler retryConfigurationAssembler;
 
     @Mock
     private LoanRescheduleRequestRepository loanRescheduleRequestRepository;
 
     @InjectMocks
     private LoanCOBFilterHelperImpl helper;
-
-    @BeforeEach
-    public void initLoanCOBFilterHelper() throws Exception {
-        helper.afterPropertiesSet();
-    }
 
     @Test
     public void testCOBFilterUnescapedChars() throws IOException {
@@ -123,6 +131,20 @@ public class LoanCOBFilterHelperTest {
         Mockito.when(httpServletRequest.getInputStream()).thenReturn(inputStream);
         List<Long> loanIds = helper.calculateRelevantLoanIds(httpServletRequest);
         Assertions.assertEquals(0, loanIds.size());
+    }
+
+    @Test
+    public void executeInlineCobRetriesConfiguredFailure() {
+        List<Long> loanIds = List.of(1L);
+        RetryConfig retryConfig = RetryConfig.<Throwable>custom().maxAttempts(2).waitDuration(Duration.ZERO)
+                .retryOnException(OptimisticLockException.class::isInstance).build();
+        when(retryConfigurationAssembler.getRetryConfigurationForExecuteCommand()).thenReturn(Retry.of("inlineCobFilterTest", retryConfig));
+        doThrow(new OptimisticLockException("commit failed")).doNothing().when(inlineLoanCOBExecutorService).execute(eq(loanIds),
+                eq(LoanCOBConstant.INLINE_LOAN_COB_JOB_NAME));
+
+        helper.executeInlineCob(loanIds);
+
+        verify(inlineLoanCOBExecutorService, times(2)).execute(loanIds, LoanCOBConstant.INLINE_LOAN_COB_JOB_NAME);
     }
 
 }
