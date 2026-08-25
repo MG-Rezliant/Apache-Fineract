@@ -37,6 +37,7 @@ import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanCollecti
 import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanDelinquencyDataV1;
 import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanDelinquencySchedulePeriodDataV1;
 import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanDisbursementDetailDataV1;
+import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanPeriodPaymentRateChangeDataV1;
 import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanSummaryDataV1;
 import org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalNearBreachDataV1;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
@@ -56,6 +57,7 @@ import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanC
 import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanData;
 import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanDelinquencyRangeScheduleData;
 import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanDisbursementDetailData;
+import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanPeriodPaymentRateChangeData;
 import org.apache.fineract.portfolio.workingcapitalloan.data.WorkingCapitalLoanSummaryData;
 import org.apache.fineract.portfolio.workingcapitalloanbreach.data.WorkingCapitalBreachData;
 import org.apache.fineract.portfolio.workingcapitalloannearbreach.data.WorkingCapitalNearBreachData;
@@ -134,6 +136,7 @@ class WorkingCapitalLoanAccountDataMapperTest {
         assertEquals(1, result.getCharges().size());
         assertEquals(1, result.getDisbursementDetails().size());
         assertEquals(1, result.getOriginators().size());
+        assertEquals(1, result.getPeriodPaymentRateHistory().size());
 
         // serializer-only fields stay unmapped
         assertNull(result.getOverpaidOnDate());
@@ -465,6 +468,52 @@ class WorkingCapitalLoanAccountDataMapperTest {
     }
 
     @Test
+    void map_periodPaymentRateChange_coversAllFields() {
+        final WorkingCapitalLoanPeriodPaymentRateChangeData source = fullRateChange();
+
+        final WorkingCapitalLoanPeriodPaymentRateChangeDataV1 result = mapper.map(source);
+
+        assertNotNull(result);
+        assertEquals("2024-01-25", result.getEffectiveDate());
+        assertEquals(new BigDecimal("18.0"), result.getPreviousRate());
+        assertEquals(new BigDecimal("17.0"), result.getNewRate());
+        assertEquals(Boolean.TRUE, result.getReversed());
+        assertEquals("2024-01-26", result.getReversedOnDate());
+        assertEquals(new BigDecimal("9000.00"), result.getNetDisbursementAmount());
+        assertEquals(new BigDecimal("1000.00"), result.getDiscountAmount());
+        assertEquals(new BigDecimal("47.22"), result.getDailyPaymentAmount());
+        assertEquals(212, result.getSegmentTotalDays());
+
+        // The persisted daily EIR keeps 12 decimals, avro decimals are fixed at 8: it is rounded, not rejected. The
+        // annualized EIR is what keeps two segments apart at this scale - it differs some six decimals earlier, and
+        // its own column stops at six, so avro widens rather than truncates it.
+        assertEquals(new BigDecimal("0.00100870"), result.getEir());
+        assertEquals(8, result.getEir().scale());
+        assertEquals(new BigDecimal("0.43756200"), result.getCalculatedAnnualEir());
+        assertEquals(8, result.getCalculatedAnnualEir().scale());
+    }
+
+    @Test
+    void map_periodPaymentRateChange_withoutSnapshot_mapsCalculatedValuesToNull() {
+        // A change booked before the snapshot existed: it was never given one and it cannot be reconstructed.
+        final WorkingCapitalLoanPeriodPaymentRateChangeData source = new WorkingCapitalLoanPeriodPaymentRateChangeData(7L, 101L,
+                LocalDate.of(2024, 1, 25), new BigDecimal("18.0"), new BigDecimal("17.0"), false, null, null, null, null, null, null, null,
+                null);
+
+        final WorkingCapitalLoanPeriodPaymentRateChangeDataV1 result = mapper.map(source);
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("17.0"), result.getNewRate());
+        assertNull(result.getReversedOnDate());
+        assertNull(result.getEir());
+        assertNull(result.getCalculatedAnnualEir());
+        assertNull(result.getNetDisbursementAmount());
+        assertNull(result.getDiscountAmount());
+        assertNull(result.getDailyPaymentAmount());
+        assertNull(result.getSegmentTotalDays());
+    }
+
+    @Test
     void map_disbursementDetail_coversAllFields() {
         final WorkingCapitalLoanDisbursementDetailData source = fullDisbursement();
 
@@ -533,7 +582,7 @@ class WorkingCapitalLoanAccountDataMapperTest {
                 .lastClosedBusinessDate(LocalDate.of(2024, 2, 1)).chargedOff(Boolean.TRUE).enableInstallmentLevelDelinquency(Boolean.TRUE)
                 .currency(currency()).timeline(fullTimeline()).summary(fullSummary()).delinquent(fullCollection()).breach(fullBreach())
                 .nearBreach(fullNearBreach()).charges(List.of(fullCharge())).disbursementDetails(List.of(fullDisbursement()))
-                .originators(List.of(fullOriginator())).build();
+                .originators(List.of(fullOriginator())).periodPaymentRateHistory(List.of(fullRateChange())).build();
     }
 
     private static LoanStatusEnumData fullStatus() {
@@ -591,6 +640,16 @@ class WorkingCapitalLoanAccountDataMapperTest {
                 .amount(new BigDecimal("25.00")).amountPaid(new BigDecimal("10.00")).amountOutstanding(new BigDecimal("15.00"))
                 .penalty(false).chargePaymentMode(new EnumOptionData(3L, "chargePaymentMode.regular", "Regular")).paid(false).loanId(99L)
                 .externalId(new ExternalId("charge-ext")).externalLoanId(new ExternalId("loan-ext")).build();
+    }
+
+    /**
+     * A rate change carrying the calculated-values snapshot, with the daily EIR at the 12 decimals it is persisted
+     * with. The id, loanId and createdDate the REST endpoint returns have no counterpart on the avro record.
+     */
+    private static WorkingCapitalLoanPeriodPaymentRateChangeData fullRateChange() {
+        return new WorkingCapitalLoanPeriodPaymentRateChangeData(7L, 101L, LocalDate.of(2024, 1, 25), new BigDecimal("18.0"),
+                new BigDecimal("17.0"), true, LocalDate.of(2024, 1, 26), null, new BigDecimal("0.001008699894"), new BigDecimal("0.437562"),
+                new BigDecimal("9000.00"), new BigDecimal("1000.00"), new BigDecimal("47.22"), 212);
     }
 
     private static WorkingCapitalLoanDisbursementDetailData fullDisbursement() {
