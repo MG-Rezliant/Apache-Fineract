@@ -2047,6 +2047,21 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
         executeDiscountFeeAdjustmentById(getCreatedLoanId(), request);
     }
 
+    @Then("Adding Discount fee adjustment with {string} amount on transaction date {string} on Working Capital loan account for last discount results an error with the following data:")
+    public void addingDiscountFeeAdjustmentWCLoanResultsAnError(final String adjustmentAmount, final String transactionDate,
+            final DataTable table) {
+        final PostWorkingCapitalLoanTransactionsResponse lastDiscountResponse = testContext()
+                .get(TestContextKey.WORKING_CAPITAL_LOAN_DISCOUNT_FEE_RESPONSE);
+        Assertions.assertNotNull(lastDiscountResponse);
+        final PostWorkingCapitalLoanTransactionsRequest request = workingCapitalProductRequestFactory
+                .defaultWorkingCapitalLoanRepaymentRequest().relatedResourceId(lastDiscountResponse.getResourceId())
+                .transactionAmount(new BigDecimal(adjustmentAmount)).transactionDate(transactionDate);
+
+        final CallFailedRuntimeException exception = fail(() -> fineractClient.workingCapitalLoanTransactions()
+                .executeWorkingCapitalLoanTransactionById(getCreatedLoanId(), "discountFeeAdjustment", request));
+        verifyErrorResponse(exception, table);
+    }
+
     @And("Admin loads discount fee transaction from Working Capital loan for adjustment")
     public void loadDiscountFeeTransactionFromLoanForAdjustment() {
         final GetWorkingCapitalLoanTransactionsResponse body = ok(
@@ -3271,6 +3286,12 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
         validateRepaymentResponse(response, totalOutstanding.doubleValue(), transactionDate, loanId);
     }
 
+    @Then("Admin closes the Working Capital loan with all obligations met with a full repayment on {string}")
+    public void closeObligationsMetWorkingCapitalLoanWithFullRepayment(final String transactionDate) {
+        closeWorkingCapitalLoanWithFullRepayment(transactionDate);
+        loanWCStatus("CLOSED_OBLIGATIONS_MET");
+    }
+
     @Then("Customer fails to make repayment on {string} with {double} EUR transaction amount outcomes with error message")
     public void repaymentWCLoanFailure(final String transactionDate, final double transactionAmount) {
         final Long loanId = getCreatedLoanId();
@@ -3281,12 +3302,6 @@ public class WorkingCapitalLoanAccountStepDef extends AbstractStepDef {
                 .executeWorkingCapitalLoanTransactionById(loanId, "repayment", repaymentRequest));
         assertThat(exception.getStatus()).as(errorMessage).isEqualTo(400);
         assertThat(exception.getDeveloperMessage()).contains(errorMessage);
-    }
-
-    @Then("Admin closes the Working Capital loan with all obligations met with a full repayment on {string}")
-    public void closeObligationsMetWorkingCapitalLoanWithFullRepayment(final String transactionDate) {
-        closeWorkingCapitalLoanWithFullRepayment(transactionDate);
-        loanWCStatus("CLOSED_OBLIGATIONS_MET");
     }
 
     @Then("Customer makes credit balance refund on {string} with {double} transaction amount on Working Capital loan")

@@ -41,6 +41,10 @@ public class DiscountFeeAmortizationBusinessStep extends WorkingCapitalLoanCOBBu
             log.debug("Skipping discount fee amortization for WC loan {} - no loan product details", input.getId());
             return input;
         }
+        if (input.isChargedOff()) {
+            log.debug("Skipping discount fee amortization for WC loan {} - loan is charged off", input.getId());
+            return input;
+        }
         // Run when there is still a discount to amortize, OR when income was previously recognized and now needs to be
         // reconciled down (e.g. a full discount adjustment reduced the discount to zero). Otherwise there is nothing to
         // do.
