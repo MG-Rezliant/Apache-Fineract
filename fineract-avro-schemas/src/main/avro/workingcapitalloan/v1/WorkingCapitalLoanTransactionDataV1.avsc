@@ -24,7 +24,7 @@
             "name": "type",
             "type": [
                 "null",
-                "org.apache.fineract.avro.loan.v1.LoanTransactionEnumDataV1"
+                "org.apache.fineract.avro.workingcapitalloan.v1.WorkingCapitalLoanTransactionTypeDataV1"
             ]
         },
         {
@@ -41,6 +41,14 @@
             "type": [
                 "null",
                 "string"
+            ]
+        },
+        {
+            "default": null,
+            "name": "currency",
+            "type": [
+                "null",
+                "org.apache.fineract.avro.generic.v1.CurrencyDataV1"
             ]
         },
         {
@@ -118,6 +126,14 @@
         {
             "default": null,
             "name": "penaltyChargesPortion",
+            "type": [
+                "null",
+                "bigdecimal"
+            ]
+        },
+        {
+            "default": null,
+            "name": "overpaymentPortion",
             "type": [
                 "null",
                 "bigdecimal"
