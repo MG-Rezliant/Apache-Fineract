@@ -40,11 +40,18 @@ public interface WorkingCapitalLoanBreachActionRepository extends JpaRepository<
             """)
     boolean isBreachDisabledAsOf(@Param("loanId") Long loanId, @Param("date") LocalDate date);
 
+    /**
+     * Reset and undo actions in creation order. The LIFO replay in
+     * {@link org.apache.fineract.portfolio.workingcapitalloan.service.WorkingCapitalLoanActiveBreachResetResolver}
+     * pairs every undo with the reset it cancels, so it needs the order the actions were recorded in. Ordering by start
+     * date first would diverge from that whenever the business date moves backwards between two actions - the dates are
+     * always the business date of their own request, so they are not monotonic on their own.
+     */
     @Query("""
             SELECT ba FROM WorkingCapitalLoanBreachAction ba
             WHERE ba.workingCapitalLoan.id= :workingCapitalLoanId
             AND ba.action IN :actionTypes
-            ORDER BY ba.startDate, ba.id
+            ORDER BY ba.id
             """)
     List<WorkingCapitalLoanBreachAction> findByLoanAndActionType(@Param("workingCapitalLoanId") Long workingCapitalLoanId,
             @Param("actionTypes") List<WorkingCapitalLoanBreachActionType> actionTypes);

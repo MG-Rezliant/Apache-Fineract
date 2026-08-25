@@ -41,6 +41,8 @@ import org.apache.fineract.client.models.PostLoansLoanIdChargesRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesResponse;
 import org.apache.fineract.client.models.PostWorkingCapitalLoanTransactionsRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoanTransactionsResponse;
+import org.apache.fineract.client.models.PostWorkingCapitalLoansBreachActionRequest;
+import org.apache.fineract.client.models.PostWorkingCapitalLoansBreachActionResponse;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdChargesChargeIdRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdChargesChargeIdResponse;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdRequest;
@@ -50,6 +52,7 @@ import org.apache.fineract.client.models.PostWorkingCapitalLoansResponse;
 import org.apache.fineract.client.models.ProjectedAmortizationScheduleData;
 import org.apache.fineract.client.models.PutWorkingCapitalLoansLoanIdDiscountRequest;
 import org.apache.fineract.client.models.PutWorkingCapitalLoansLoanIdRateRequest;
+import org.apache.fineract.client.models.WorkingCapitalLoanBreachActionData;
 import org.apache.fineract.client.models.WorkingCapitalLoanBreachScheduleData;
 import org.apache.fineract.client.models.WorkingCapitalLoanChargeData;
 import org.apache.fineract.client.models.WorkingCapitalLoanDelinquencyRangeScheduleData;
@@ -188,6 +191,22 @@ public class FeignWorkingCapitalLoanHelper {
 
     public List<WorkingCapitalLoanBreachScheduleData> getBreachSchedule(Long loanId) {
         return ok(() -> fineractClient.workingCapitalLoanBreachSchedule().retrieveBreachSchedule(loanId));
+    }
+
+    public Long createBreachAction(Long loanId, PostWorkingCapitalLoansBreachActionRequest request) {
+        PostWorkingCapitalLoansBreachActionResponse response = ok(
+                () -> fineractClient.workingCapitalLoanBreachActions().createBreachAction(loanId, request));
+        return response.getResourceId();
+    }
+
+    public List<WorkingCapitalLoanBreachActionData> getBreachActions(Long loanId) {
+        return ok(() -> fineractClient.workingCapitalLoanBreachActions().retrieveBreachActions(loanId));
+    }
+
+    public BigDecimal getBreachPastDueAmount(Long loanId) {
+        GetWorkingCapitalLoansLoanIdResponse loan = getLoanDetails(loanId);
+        assertNotNull(loan.getBalance(), "Balance section must be present on WC loan " + loanId);
+        return loan.getBalance().getBreachPastDueAmount();
     }
 
     public Long adjustCharge(Long loanId, Long loanChargeId, PostWorkingCapitalLoansLoanIdChargesChargeIdRequest request) {

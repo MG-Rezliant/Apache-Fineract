@@ -248,8 +248,7 @@ public class WorkingCapitalLoanBreachScheduleServiceImpl implements WorkingCapit
             if (frequencyProvided) {
                 final LocalDate newToDate = resolveRescheduledToDate(loan.getId(), currentPeriod, action.getFrequency(),
                         action.getFrequencyType());
-                currentPeriod.setToDate(newToDate);
-                currentPeriod.setNumberOfDays((int) ChronoUnit.DAYS.between(currentPeriod.getFromDate(), newToDate) + 1);
+                setPeriodBounds(currentPeriod, currentPeriod.getFromDate(), newToDate);
             }
             currentPeriod.setMinPaymentAmount(newMinPaymentAmount);
             currentPeriod.setOutstandingAmount(newMinPaymentAmount.subtract(currentPeriod.getPaidAmount()).max(BigDecimal.ZERO));
@@ -302,6 +301,76 @@ public class WorkingCapitalLoanBreachScheduleServiceImpl implements WorkingCapit
         recalculatePastDueAmount(loan);
         log.debug("Recalculated breach schedule periods for WC loan {} by replaying {} effective pauses", loan.getId(),
                 effectivePauses.size());
+    }
+
+    @Override
+    public void splitPeriodAtReset(final WorkingCapitalLoan loan, final LocalDate resetDate) {
+        final List<WorkingCapitalLoanBreachSchedule> periods = repository.findByLoanIdOrderByPeriodNumberAsc(loan.getId());
+        // Only a reset date strictly inside the last period splits it. On its start date there is nothing to split,
+        // and before it the reset date belongs to an earlier period - truncating the last one to resetDate - 1 would
+        // persist a period ending before it starts, with a negative numberOfDays.
+        if (periods.isEmpty() || !DateUtils.isAfter(resetDate, periods.getLast().getFromDate())) {
+            log.debug("No breach schedule period to split at reset date {} for WC loan {}", resetDate, loan.getId());
+            return;
+        }
+        final WorkingCapitalLoanBreachSchedule lastPeriod = periods.getLast();
+        setPeriodBounds(lastPeriod, lastPeriod.getFromDate(), resetDate.minusDays(1));
+        generateNextPeriodIfNeeded(loan, resetDate);
+        reprocessBreachSchedule(loan);
+        log.debug("Split breach schedule period {} of WC loan {} at the reset date {}", lastPeriod.getPeriodNumber(), loan.getId(),
+                resetDate);
+    }
+
+    @Override
+    public boolean restoreSplitPeriod(final WorkingCapitalLoan loan, final LocalDate resetDate) {
+        final Optional<WorkingCapitalBreach> breachOpt = getBreachConfig(loan);
+        if (breachOpt.isEmpty()) {
+            log.warn("No breach configuration found for WC loan {}, the undo of the reset dated {} stays flag-only", loan.getId(),
+                    resetDate);
+            return false;
+        }
+        final List<WorkingCapitalLoanBreachSchedule> periods = repository.findByLoanIdOrderByPeriodNumberAsc(loan.getId());
+        final LocalDate splitDate = resetDate.minusDays(1);
+        final Optional<WorkingCapitalLoanBreachSchedule> truncatedPeriodOpt = periods.stream()
+                .filter(period -> DateUtils.isEqual(period.getToDate(), splitDate)).findFirst();
+        // A split leaves both halves behind, so the period the reset date opened must still be there as well.
+        // Without it the schedule no longer holds the split this undo would revert - it was rewritten by a later
+        // action - and the end date match above is a coincidence that must not delete periods.
+        final boolean splitPeriodPresent = periods.stream().anyMatch(period -> DateUtils.isEqual(period.getFromDate(), resetDate));
+        if (truncatedPeriodOpt.isEmpty() || !splitPeriodPresent) {
+            log.warn("No split of the breach schedule of WC loan {} found at the reset date {}, the undo of that reset stays flag-only",
+                    loan.getId(), resetDate);
+            return false;
+        }
+
+        final WorkingCapitalLoanBreachSchedule truncatedPeriod = truncatedPeriodOpt.get();
+        final EffectiveBreachRescheduleParams params = resolveEffectiveRescheduleParams(loan.getId(), breachOpt.get());
+        final LocalDate naturalToDate = WorkingCapitalLoanBreachScheduleEvaluationUtils.calculateToDate(truncatedPeriod.getFromDate(),
+                params.frequency(), params.frequencyType());
+        final WorkingCapitalLoanPeriodBounds restoredBounds = WorkingCapitalLoanPausePeriodUtils.applyPauses(truncatedPeriod.getFromDate(),
+                naturalToDate, findEffectivePauses(loan.getId()));
+        // Recomputing gives back the stored end date, so the period was never truncated and nothing must be changed:
+        // the reset fell on a period start date and left the schedule as it was.
+        if (DateUtils.isEqual(restoredBounds.toDate(), truncatedPeriod.getToDate())) {
+            log.debug("Breach schedule period {} of WC loan {} was never truncated by the reset dated {}, leaving the schedule as it is",
+                    truncatedPeriod.getPeriodNumber(), loan.getId(), resetDate);
+            return false;
+        }
+
+        setPeriodBounds(truncatedPeriod, restoredBounds.fromDate(), restoredBounds.toDate());
+        final List<WorkingCapitalLoanBreachSchedule> periodsAfterResetDate = periods.stream()
+                .filter(period -> !DateUtils.isBefore(period.getFromDate(), resetDate)).toList();
+        repository.deleteAll(periodsAfterResetDate);
+        // The deletes must reach the database before the regeneration below inserts the replacement periods: Hibernate
+        // orders inserts ahead of deletes within a flush, which makes the reused period numbers collide with the
+        // uc_wc_breach_schedule_loan_period unique constraint.
+        repository.flush();
+
+        log.debug("Restored breach schedule period {} of WC loan {} to {} and removed {} periods starting from the reset date {}",
+                truncatedPeriod.getPeriodNumber(), loan.getId(), truncatedPeriod.getToDate(), periodsAfterResetDate.size(), resetDate);
+        // The restored period and the ones regenerated after it are repopulated from the loan transactions.
+        reprocessBreachSchedule(loan);
+        return true;
     }
 
     @Override
@@ -368,20 +437,28 @@ public class WorkingCapitalLoanBreachScheduleServiceImpl implements WorkingCapit
     private void applyRecordedPauses(final WorkingCapitalLoanBreachSchedule period, final List<WorkingCapitalLoanPausePeriod> pauses) {
         final WorkingCapitalLoanPeriodBounds bounds = WorkingCapitalLoanPausePeriodUtils.applyPauses(period.getFromDate(),
                 period.getToDate(), pauses);
-        period.setFromDate(bounds.fromDate());
-        period.setToDate(bounds.toDate());
-        period.setNumberOfDays((int) ChronoUnit.DAYS.between(bounds.fromDate(), bounds.toDate()) + 1);
+        setPeriodBounds(period, bounds.fromDate(), bounds.toDate());
+    }
+
+    /**
+     * Writes the inclusive bounds of a period together with the day count they imply, so the two cannot drift apart.
+     */
+    private void setPeriodBounds(final WorkingCapitalLoanBreachSchedule period, final LocalDate fromDate, final LocalDate toDate) {
+        period.setFromDate(fromDate);
+        period.setToDate(toDate);
+        period.setNumberOfDays(inclusiveDays(fromDate, toDate));
+    }
+
+    private static int inclusiveDays(final LocalDate fromDate, final LocalDate toDate) {
+        return (int) ChronoUnit.DAYS.between(fromDate, toDate) + 1;
     }
 
     private WorkingCapitalLoanBreachSchedule createPeriod(final WorkingCapitalLoan loan, final int periodNumber, final LocalDate fromDate,
             final LocalDate toDate, final BigDecimal minPaymentAmount) {
-        final int numberOfDays = (int) ChronoUnit.DAYS.between(fromDate, toDate) + 1;
         final WorkingCapitalLoanBreachSchedule period = new WorkingCapitalLoanBreachSchedule();
         period.setLoan(loan);
         period.setPeriodNumber(periodNumber);
-        period.setFromDate(fromDate);
-        period.setToDate(toDate);
-        period.setNumberOfDays(numberOfDays);
+        setPeriodBounds(period, fromDate, toDate);
         period.setBaseMinPaymentAmount(minPaymentAmount);
         period.setMinPaymentAmount(minPaymentAmount);
         period.setPaidAmount(BigDecimal.ZERO);
@@ -481,9 +558,7 @@ public class WorkingCapitalLoanBreachScheduleServiceImpl implements WorkingCapit
             periodNumber++;
 
             period.setPeriodNumber(periodNumber);
-            period.setFromDate(fromDate);
-            period.setToDate(toDate);
-            period.setNumberOfDays((int) ChronoUnit.DAYS.between(fromDate, toDate) + 1);
+            setPeriodBounds(period, fromDate, toDate);
             period.setBaseMinPaymentAmount(minPaymentAmount);
             period.setMinPaymentAmount(minPaymentAmount);
             period.setPaidAmount(BigDecimal.ZERO);

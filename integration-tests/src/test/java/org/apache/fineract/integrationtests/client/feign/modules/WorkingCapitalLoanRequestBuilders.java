@@ -23,6 +23,7 @@ import org.apache.fineract.client.models.ChargeRequest;
 import org.apache.fineract.client.models.ExecuteWorkingCapitalLoanTransactionCommandRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoanTransactionsRequest;
+import org.apache.fineract.client.models.PostWorkingCapitalLoansBreachActionRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdChargesChargeIdRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdNearBreachActionsRequest;
 import org.apache.fineract.client.models.PostWorkingCapitalLoansLoanIdNearBreachActionsRequest.NearBreachFrequencyTypeEnum;
@@ -96,6 +97,33 @@ public final class WorkingCapitalLoanRequestBuilders {
                 .action(PostWorkingCapitalLoansLoanIdNearBreachActionsRequest.ActionEnum.RESCHEDULE).nearBreachThreshold(threshold)
                 .nearBreachFrequency(frequency).nearBreachFrequencyType(NearBreachFrequencyTypeEnum.fromValue(frequencyType))
                 .locale(LOCALE);
+    }
+
+    /**
+     * Plain breach reset action. The reset date is always the current business date (the server ignores any submitted
+     * dates for a reset).
+     */
+    public static PostWorkingCapitalLoansBreachActionRequest breachReset() {
+        return new PostWorkingCapitalLoansBreachActionRequest().action("reset").locale(LOCALE).dateFormat(DATE_FORMAT);
+    }
+
+    /**
+     * Breach reset action that also restarts (splits) the current breach period from the reset date.
+     */
+    public static PostWorkingCapitalLoansBreachActionRequest breachResetWithRestartPeriod() {
+        return breachReset().restartPeriodFromResetDate(true);
+    }
+
+    /**
+     * Undoes the latest still-active breach reset. The undo date is always the current business date.
+     */
+    public static PostWorkingCapitalLoansBreachActionRequest breachUndoReset() {
+        return new PostWorkingCapitalLoansBreachActionRequest().action("undo_reset").locale(LOCALE).dateFormat(DATE_FORMAT);
+    }
+
+    public static PostWorkingCapitalLoansBreachActionRequest breachPause(String startDate, String endDate) {
+        return new PostWorkingCapitalLoansBreachActionRequest().action("pause").startDate(startDate).endDate(endDate).locale(LOCALE)
+                .dateFormat(DATE_FORMAT);
     }
 
     public static PostWorkingCapitalLoanTransactionsRequest repayment(BigDecimal amount, String transactionDate) {

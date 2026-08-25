@@ -54,6 +54,10 @@ public interface WorkingCapitalLoanBreachScheduleService {
 
     void recalculatePeriodsForPauses(WorkingCapitalLoan loan);
 
+    void splitPeriodAtReset(WorkingCapitalLoan loan, LocalDate resetDate);
+
+    boolean restoreSplitPeriod(WorkingCapitalLoan loan, LocalDate resetDate);
+
     void recalculatePastDueAmount(WorkingCapitalLoan loan);
 
     void reprocessBreachSchedule(WorkingCapitalLoan loan);
