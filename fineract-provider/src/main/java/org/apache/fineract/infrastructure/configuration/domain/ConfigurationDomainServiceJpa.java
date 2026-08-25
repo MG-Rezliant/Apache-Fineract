@@ -645,6 +645,13 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public String getWCLChargeAccrualTime() {
+        GlobalConfigurationPropertyData globalConfigurationPropertyData = getGlobalConfigurationPropertyData(
+                GlobalConfigurationConstants.WCL_CHARGE_ACCRUAL_TIME);
+        return globalConfigurationPropertyData.getStringValue();
+    }
+
+    @Override
     public Long getOfficeId() {
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(GlobalConfigurationConstants.OFFICE_ID);
         return property.getValue();
