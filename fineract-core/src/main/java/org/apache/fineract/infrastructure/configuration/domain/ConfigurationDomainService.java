@@ -183,4 +183,7 @@ public interface ConfigurationDomainService {
     boolean isBackdatedTransactionsDisallowed();
 
     Long retrieveBackdatedTransactionsToleranceDays();
+
+    String getWCLChargeAccrualTime();
+
 }
