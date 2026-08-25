@@ -88,7 +88,7 @@ import org.apache.fineract.portfolio.common.service.CommonEnumerations;
 import org.apache.fineract.portfolio.delinquency.data.DelinquencyRangeData;
 import org.apache.fineract.portfolio.delinquency.service.DelinquencyReadPlatformService;
 import org.apache.fineract.portfolio.floatingrates.data.InterestRatePeriodData;
-import org.apache.fineract.portfolio.floatingrates.service.FloatingRatesReadPlatformService;
+import org.apache.fineract.portfolio.floatingrates.service.FloatingRatesReadService;
 import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
@@ -181,7 +181,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final StaffReadService staffReadPlatformService;
     private final PaginationHelper paginationHelper;
     private final PaymentTypeReadService paymentTypeReadPlatformService;
-    private final FloatingRatesReadPlatformService floatingRatesReadPlatformService;
+    private final FloatingRatesReadService floatingRatesReadPlatformService;
     private final LoanUtilService loanUtilService;
     private final ConfigurationDomainService configurationDomainService;
     private final AccountDetailsReadPlatformService accountDetailsReadPlatformService;
@@ -1781,7 +1781,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         if (frequencyType == null) {
             return null;
         }
-        // Per PS-2795: calculated start date = current date + 1 unit of original frequency type
+        // calculated start date = current date + 1 unit of original frequency type
         return switch (frequencyType) {
             case DAYS -> businessDate.plusDays(1);
             case WEEKS -> businessDate.plusWeeks(1);

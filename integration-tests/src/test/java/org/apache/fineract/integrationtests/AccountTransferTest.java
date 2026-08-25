@@ -31,10 +31,13 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.apache.fineract.client.models.PaymentTypeCreateRequest;
 import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.CollateralManagementHelper;
 import org.apache.fineract.integrationtests.common.CommonConstants;
 import org.apache.fineract.integrationtests.common.OfficeHelper;
+import org.apache.fineract.integrationtests.common.PaymentTypeHelper;
 import org.apache.fineract.integrationtests.common.Utils;
 import org.apache.fineract.integrationtests.common.accounting.Account;
 import org.apache.fineract.integrationtests.common.accounting.Account.AccountType;
@@ -52,10 +55,11 @@ import org.apache.fineract.integrationtests.common.savings.SavingsAccountHelper;
 import org.apache.fineract.integrationtests.common.savings.SavingsProductHelper;
 import org.apache.fineract.integrationtests.common.savings.SavingsStatusChecker;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +68,7 @@ import org.slf4j.LoggerFactory;
  * JUnit Test Cases for Account Transfer for.
  */
 @SuppressWarnings({ "rawtypes", "unused" })
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ExtendWith(LoanTestLifecycleExtension.class)
 public class AccountTransferTest {
 
@@ -103,7 +108,7 @@ public class AccountTransferTest {
     private Integer financialActivityAccountId;
     private Account liabilityTransferAccount;
 
-    @BeforeEach
+    @BeforeAll
     public void setup() {
         Utils.initializeRESTAssured();
         this.requestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build();
@@ -114,7 +119,9 @@ public class AccountTransferTest {
         this.financialActivityAccountHelper = new FinancialActivityAccountHelper(this.requestSpec);
 
         List<HashMap> financialActivities = this.financialActivityAccountHelper.getAllFinancialActivityAccounts(this.responseSpec);
-        if (financialActivities.isEmpty()) {
+        if (financialActivities.stream()
+                .noneMatch(financialActivityAccount -> FinancialActivityAccountsTest.LIABILITY_TRANSFER_FINANCIAL_ACTIVITY_ID
+                        .equals(financialActivityAccount.get("id")))) {
             /* Setup liability transfer account **/
             /* Create a Liability and an Asset Transfer Account **/
             liabilityTransferAccount = accountHelper.createLiabilityAccount();
@@ -141,7 +148,7 @@ public class AccountTransferTest {
     /**
      * Delete the Liability transfer account
      */
-    @AfterEach
+    @AfterAll
     public void tearDown() {
         Integer deletedFinancialActivityAccountId = financialActivityAccountHelper
                 .deleteFinancialActivityAccount(financialActivityAccountId, responseSpec, CommonConstants.RESPONSE_RESOURCE_ID);
@@ -240,6 +247,55 @@ public class AccountTransferTest {
         this.journalEntryHelper.checkJournalEntryForLiabilityAccount(toOfficeId, liabilityTransferAccount,
                 AccountTransferHelper.ACCOUNT_TRANSFER_DATE, office2LiabilityEntries);
 
+    }
+
+    @Test
+    public void testFromSavingsToSavingsAccountTransferWithoutPaymentDetailsReadResponseRemainsCompatible() {
+        this.savingsAccountHelper = new SavingsAccountHelper(this.requestSpec, this.responseSpec);
+        this.accountTransferHelper = new AccountTransferHelper(this.requestSpec, this.responseSpec);
+
+        SavingsTransferFixture fixture = createSavingsTransferFixture();
+        Long accountTransferDetailId = this.accountTransferHelper.accountTransferReturningResourceId(fixture.fromClientId,
+                fixture.fromSavingsId, fixture.toClientId, fixture.toSavingsId, FROM_SAVINGS_ACCOUNT_TYPE, TO_SAVINGS_ACCOUNT_TYPE,
+                ACCOUNT_TRANSFER_AMOUNT, null);
+
+        ArrayList<HashMap> transfers = this.accountTransferHelper.retrieveTransfersByAccountDetailId(accountTransferDetailId);
+        Assertions.assertEquals(1, transfers.size());
+        Assertions.assertTrue(!transfers.get(0).containsKey("paymentDetailData") || transfers.get(0).get("paymentDetailData") == null);
+    }
+
+    @Test
+    public void testFromSavingsToSavingsAccountTransferWithPaymentDetailsPersistsAndReadsPaymentDetails() {
+        this.savingsAccountHelper = new SavingsAccountHelper(this.requestSpec, this.responseSpec);
+        this.accountTransferHelper = new AccountTransferHelper(this.requestSpec, this.responseSpec);
+
+        SavingsTransferFixture fixture = createSavingsTransferFixture();
+        Long paymentTypeId = createPaymentType();
+        Map<String, Object> paymentDetails = Map.of("paymentTypeId", paymentTypeId, "accountNumber", "ACC-2733", "checkNumber", "CHK-2733",
+                "routingCode", "RT-2733", "receiptNumber", "RC-2733", "bankNumber", "BNK-2733");
+
+        Long accountTransferDetailId = this.accountTransferHelper.accountTransferReturningResourceId(fixture.fromClientId,
+                fixture.fromSavingsId, fixture.toClientId, fixture.toSavingsId, FROM_SAVINGS_ACCOUNT_TYPE, TO_SAVINGS_ACCOUNT_TYPE,
+                ACCOUNT_TRANSFER_AMOUNT, paymentDetails);
+
+        ArrayList<HashMap> transfers = this.accountTransferHelper.retrieveTransfersByAccountDetailId(accountTransferDetailId);
+        Assertions.assertEquals(1, transfers.size());
+        HashMap paymentDetailData = (HashMap) transfers.get(0).get("paymentDetailData");
+        Assertions.assertNotNull(paymentDetailData);
+        HashMap paymentType = (HashMap) paymentDetailData.get("paymentType");
+        Assertions.assertEquals(paymentTypeId, ((Number) paymentType.get("id")).longValue());
+        Assertions.assertEquals("ACC-2733", paymentDetailData.get("accountNumber"));
+        Assertions.assertEquals("CHK-2733", paymentDetailData.get("checkNumber"));
+        Assertions.assertEquals("RT-2733", paymentDetailData.get("routingCode"));
+        Assertions.assertEquals("RC-2733", paymentDetailData.get("receiptNumber"));
+        Assertions.assertEquals("BNK-2733", paymentDetailData.get("bankNumber"));
+    }
+
+    @Test
+    public void testAccountTransferRejectsPaymentDetailsWithoutPaymentType() {
+        this.accountTransferHelper = new AccountTransferHelper(this.requestSpec, this.responseSpec);
+
+        this.accountTransferHelper.invalidAccountTransferWithPaymentDetails(Map.of("accountNumber", "ACC-2733"));
     }
 
     @Test
@@ -919,6 +975,50 @@ public class AccountTransferTest {
         return SavingsProductHelper.createSavingsProduct(savingsProductJSON, requestSpec, responseSpec);
     }
 
+    private SavingsTransferFixture createSavingsTransferFixture() {
+        final Account assetAccount = this.accountHelper.createAssetAccount();
+        final Account incomeAccount = this.accountHelper.createIncomeAccount();
+        final Account expenseAccount = this.accountHelper.createExpenseAccount();
+        final Account liabilityAccount = this.accountHelper.createLiabilityAccount();
+
+        OfficeHelper officeHelper = new OfficeHelper();
+        Integer fromOfficeId = officeHelper.createOffice(LocalDate.of(2011, 1, 1)).getResourceId().intValue();
+        Integer toOfficeId = officeHelper.createOffice(LocalDate.of(2011, 1, 1)).getResourceId().intValue();
+
+        final Integer savingsProductId = createSavingsProduct(this.requestSpec, this.responseSpec, MINIMUM_OPENING_BALANCE, assetAccount,
+                incomeAccount, expenseAccount, liabilityAccount);
+
+        final Integer fromClientId = ClientHelper.createClient(this.requestSpec, this.responseSpec, "01 January 2011",
+                String.valueOf(fromOfficeId));
+        final Integer fromSavingsId = createActiveSavingsAccount(fromClientId, savingsProductId);
+
+        final Integer toClientId = ClientHelper.createClient(this.requestSpec, this.responseSpec, "01 January 2011",
+                String.valueOf(toOfficeId));
+        final Integer toSavingsId = createActiveSavingsAccount(toClientId, savingsProductId);
+
+        return new SavingsTransferFixture(fromClientId, fromSavingsId, toClientId, toSavingsId);
+    }
+
+    private Integer createActiveSavingsAccount(final Integer clientId, final Integer savingsProductId) {
+        final Integer savingsId = this.savingsAccountHelper.applyForSavingsApplication(clientId, savingsProductId, ACCOUNT_TYPE_INDIVIDUAL);
+        HashMap savingsStatusHashMap = SavingsStatusChecker.getStatusOfSavings(this.requestSpec, this.responseSpec, savingsId);
+        SavingsStatusChecker.verifySavingsIsPending(savingsStatusHashMap);
+        savingsStatusHashMap = this.savingsAccountHelper.approveSavings(savingsId);
+        SavingsStatusChecker.verifySavingsIsApproved(savingsStatusHashMap);
+        savingsStatusHashMap = this.savingsAccountHelper.activateSavings(savingsId);
+        SavingsStatusChecker.verifySavingsIsActive(savingsStatusHashMap);
+        return savingsId;
+    }
+
+    private Long createPaymentType() {
+        String paymentTypeName = PaymentTypeHelper.randomNameGenerator("P_T", 5);
+        String description = PaymentTypeHelper.randomNameGenerator("PT_Desc", 15);
+        return PaymentTypeHelper
+                .createPaymentType(
+                        new PaymentTypeCreateRequest().name(paymentTypeName).description(description).isCashPayment(false).position(1L))
+                .getResourceId();
+    }
+
     private Integer createLoanProduct(final Account... accounts) {
         LOG.info("------------------------------CREATING NEW LOAN PRODUCT ---------------------------------------");
         final String loanProductJSON = new LoanProductTestBuilder() //
@@ -972,5 +1072,8 @@ public class AccountTransferTest {
         collateral.put("clientCollateralId", collateralId.toString());
         collateral.put("quantity", quantity.toString());
         return collateral;
+    }
+
+    private record SavingsTransferFixture(Integer fromClientId, Integer fromSavingsId, Integer toClientId, Integer toSavingsId) {
     }
 }

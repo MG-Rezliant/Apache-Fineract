@@ -33,7 +33,6 @@ import java.util.Map;
 import org.apache.fineract.client.models.PutGlobalConfigurationsRequest;
 import org.apache.fineract.client.models.PutPermissionsRequest;
 import org.apache.fineract.infrastructure.configuration.api.GlobalConfigurationConstants;
-import org.apache.fineract.integrationtests.common.AuditHelper;
 import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.CommonConstants;
 import org.apache.fineract.integrationtests.common.FineractClientHelper;
@@ -58,7 +57,6 @@ public class MakercheckerTest {
     private RequestSpecification requestSpec;
     private MakercheckersHelper makercheckersHelper;
     private RolesHelper rolesHelper;
-    private AuditHelper auditHelper;
     private SavingsProductHelper savingsProductHelper;
     private SavingsAccountHelper savingsAccountHelper;
     private static final String START_DATE_STRING = "03 June 2023";
@@ -73,7 +71,6 @@ public class MakercheckerTest {
         this.responseSpec = new ResponseSpecBuilder().expectStatusCode(200).build();
         this.makercheckersHelper = new MakercheckersHelper(this.requestSpec, this.responseSpec);
         this.rolesHelper = new RolesHelper();
-        this.auditHelper = new AuditHelper(requestSpec, responseSpec);
         this.savingsProductHelper = new SavingsProductHelper();
         this.savingsAccountHelper = new SavingsAccountHelper(this.requestSpec, this.responseSpec);
         this.globalConfigurationHelper = new GlobalConfigurationHelper();
@@ -196,6 +193,8 @@ public class MakercheckerTest {
             PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("WITHDRAWAL_SAVINGSACCOUNT",
                     false);
             rolesHelper.updatePermissions(putPermissionsRequest);
+            putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("ACTIVATE_CLIENT", false);
+            rolesHelper.updatePermissions(putPermissionsRequest);
         }
     }
 
@@ -267,6 +266,103 @@ public class MakercheckerTest {
                     new PutGlobalConfigurationsRequest().enabled(true));
 
             PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("CREATE_DATATABLE", false);
+            rolesHelper.updatePermissions(putPermissionsRequest);
+        }
+    }
+
+    @Test
+    public void testMakerCheckerUsernameFilter() {
+        globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.MAKER_CHECKER,
+                new PutGlobalConfigurationsRequest().enabled(true));
+        globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.ENABLE_SAME_MAKER_CHECKER,
+                new PutGlobalConfigurationsRequest().enabled(false));
+
+        try {
+            PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("CREATE_CLIENT", true);
+            rolesHelper.updatePermissions(putPermissionsRequest);
+
+            Integer roleId = RolesHelper.createRole(requestSpec, responseSpec);
+            Map<String, Boolean> permissionMap = Map.of("CREATE_CLIENT", true, "CREATE_CLIENT_CHECKER", true, "ACTIVATE_CLIENT", true);
+            RolesHelper.addPermissionsToRole(requestSpec, responseSpec, roleId, permissionMap);
+            final Integer staffId = StaffHelper.createStaff(this.requestSpec, this.responseSpec);
+
+            String maker1 = Utils.uniqueRandomStringGenerator("user", 8);
+            String maker2 = Utils.uniqueRandomStringGenerator("user", 8);
+            UserHelper.createUser(this.requestSpec, this.responseSpec, roleId, staffId, maker1, "A1b2c3d4e5f$", "resourceId");
+            UserHelper.createUser(this.requestSpec, this.responseSpec, roleId, staffId, maker2, "A1b2c3d4e5f$", "resourceId");
+
+            RequestSpecification maker1RequestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build()
+                    .header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey(maker1, "A1b2c3d4e5f$"));
+            RequestSpecification maker2RequestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build()
+                    .header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey(maker2, "A1b2c3d4e5f$"));
+
+            ClientHelper.createClient(maker1RequestSpec, this.responseSpec);
+            ClientHelper.createClient(maker2RequestSpec, this.responseSpec);
+
+            List<Map<String, Object>> maker1Results = makercheckersHelper
+                    .getMakerCheckerList(Map.of("username", maker1, "actionName", "CREATE", "entityName", "CLIENT"));
+            assertEquals(1, maker1Results.size(), "Username filter should return only maker1's commands");
+            assertEquals(maker1, maker1Results.get(0).get("maker"));
+
+            List<Map<String, Object>> maker2Results = makercheckersHelper
+                    .getMakerCheckerList(Map.of("username", maker2, "actionName", "CREATE", "entityName", "CLIENT"));
+            assertEquals(1, maker2Results.size(), "Username filter should return only maker2's commands");
+            assertEquals(maker2, maker2Results.get(0).get("maker"));
+
+            List<Map<String, Object>> noResults = makercheckersHelper.getMakerCheckerList(Map.of("username", "nonexistentuserxyz_999"));
+            assertEquals(0, noResults.size(), "Unknown username should return no results");
+        } finally {
+            globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.MAKER_CHECKER,
+                    new PutGlobalConfigurationsRequest().enabled(false));
+            globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.ENABLE_SAME_MAKER_CHECKER,
+                    new PutGlobalConfigurationsRequest().enabled(true));
+            PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("CREATE_CLIENT", false);
+            rolesHelper.updatePermissions(putPermissionsRequest);
+        }
+    }
+
+    @Test
+    public void testMakerCheckerDateFilterWithDayMonthYearFormat() {
+        globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.MAKER_CHECKER,
+                new PutGlobalConfigurationsRequest().enabled(true));
+        globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.ENABLE_SAME_MAKER_CHECKER,
+                new PutGlobalConfigurationsRequest().enabled(false));
+
+        try {
+            PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("CREATE_CLIENT", true);
+            rolesHelper.updatePermissions(putPermissionsRequest);
+
+            Integer roleId = RolesHelper.createRole(requestSpec, responseSpec);
+            Map<String, Boolean> permissionMap = Map.of("CREATE_CLIENT", true, "CREATE_CLIENT_CHECKER", true, "ACTIVATE_CLIENT", true);
+            RolesHelper.addPermissionsToRole(requestSpec, responseSpec, roleId, permissionMap);
+            final Integer staffId = StaffHelper.createStaff(this.requestSpec, this.responseSpec);
+
+            String maker = Utils.uniqueRandomStringGenerator("user", 8);
+            final Integer makerUserId = (Integer) UserHelper.createUser(this.requestSpec, this.responseSpec, roleId, staffId, maker,
+                    "A1b2c3d4e5f$", "resourceId");
+            RequestSpecification makerRequestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build()
+                    .header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey(maker, "A1b2c3d4e5f$"));
+
+            ClientHelper.createClient(makerRequestSpec, this.responseSpec);
+
+            // "dd MMMM yyyy" format without dateFormat/locale — previously caused 500 error
+            List<Map<String, Object>> fromOnly = makercheckersHelper
+                    .getMakerCheckerList(Map.of("makerId", makerUserId.toString(), "makerDateTimeFrom", "01 January 2020"));
+            assertEquals(1, fromOnly.size(), "'dd MMMM yyyy' from-date filter should include today's pending command");
+
+            List<Map<String, Object>> fromAndTo = makercheckersHelper.getMakerCheckerList(Map.of("makerId", makerUserId.toString(),
+                    "makerDateTimeFrom", "01 January 2020", "makerDateTimeTo", "31 December 2030"));
+            assertEquals(1, fromAndTo.size(), "'dd MMMM yyyy' date range filter should include today's pending command");
+
+            List<Map<String, Object>> pastRange = makercheckersHelper.getMakerCheckerList(Map.of("makerId", makerUserId.toString(),
+                    "makerDateTimeFrom", "01 January 2020", "makerDateTimeTo", "31 December 2020"));
+            assertEquals(0, pastRange.size(), "Past date range should exclude today's pending command");
+        } finally {
+            globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.MAKER_CHECKER,
+                    new PutGlobalConfigurationsRequest().enabled(false));
+            globalConfigurationHelper.updateGlobalConfiguration(GlobalConfigurationConstants.ENABLE_SAME_MAKER_CHECKER,
+                    new PutGlobalConfigurationsRequest().enabled(true));
+            PutPermissionsRequest putPermissionsRequest = new PutPermissionsRequest().putPermissionsItem("CREATE_CLIENT", false);
             rolesHelper.updatePermissions(putPermissionsRequest);
         }
     }

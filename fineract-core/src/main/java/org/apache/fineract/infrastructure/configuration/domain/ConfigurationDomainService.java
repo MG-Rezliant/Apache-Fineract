@@ -179,4 +179,8 @@ public interface ConfigurationDomainService {
     boolean isAllowCashAndNonCashAccrual();
 
     boolean isBlockTransactionsOnClosedOverpaidLoansEnabled();
+
+    boolean isBackdatedTransactionsDisallowed();
+
+    Long retrieveBackdatedTransactionsToleranceDays();
 }

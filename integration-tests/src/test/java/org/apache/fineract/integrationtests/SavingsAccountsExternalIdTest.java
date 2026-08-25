@@ -18,10 +18,16 @@
  */
 package org.apache.fineract.integrationtests;
 
+import io.restassured.builder.RequestSpecBuilder;
+import io.restassured.builder.ResponseSpecBuilder;
+import io.restassured.http.ContentType;
+import io.restassured.specification.RequestSpecification;
+import io.restassured.specification.ResponseSpecification;
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import org.apache.fineract.client.models.DeleteSavingsAccountsAccountIdResponse;
+import org.apache.fineract.client.models.PostClientsResponse;
 import org.apache.fineract.client.models.PostSavingsAccountsAccountIdRequest;
 import org.apache.fineract.client.models.PostSavingsAccountsAccountIdResponse;
 import org.apache.fineract.client.models.PostSavingsAccountsRequest;
@@ -31,7 +37,9 @@ import org.apache.fineract.client.models.PutSavingsAccountsAccountIdResponse;
 import org.apache.fineract.client.models.SavingsAccountData;
 import org.apache.fineract.client.util.Calls;
 import org.apache.fineract.integrationtests.client.IntegrationTest;
+import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.Utils;
+import org.apache.fineract.integrationtests.common.savings.SavingsProductHelper;
 import org.apache.fineract.integrationtests.common.savings.SavingsTestLifecycleExtension;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -54,8 +62,18 @@ public class SavingsAccountsExternalIdTest extends IntegrationTest {
     void submitSavingsAccountsApplication() {
         LOG.info("------------------------------ CREATING NEW SAVINGS ACCOUNT APPLICATION ---------------------------------------");
         PostSavingsAccountsRequest request = new PostSavingsAccountsRequest();
-        request.setClientId(1L);
-        request.setProductId(1L);
+        final PostClientsResponse client = ClientHelper.createClient(ClientHelper.defaultClientCreationRequest());
+        request.setClientId(client.getClientId());
+        // create a dedicated savings product instead of assuming product id 1 was created by another test class in the
+        // same shard: shard membership is round-robin over every test class in the repository, so it changes whenever a
+        // test is added anywhere
+        final RequestSpecification requestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build();
+        requestSpec.header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey());
+        final ResponseSpecification responseSpec = new ResponseSpecBuilder().expectStatusCode(200).build();
+        final String savingsProductJSON = new SavingsProductHelper().withInterestCompoundingPeriodTypeAsDaily()
+                .withInterestPostingPeriodTypeAsQuarterly().withInterestCalculationPeriodTypeAsDailyBalance().build();
+        final long productId = SavingsProductHelper.createSavingsProduct(savingsProductJSON, requestSpec, responseSpec);
+        request.setProductId(productId);
         request.setLocale(locale);
         request.setDateFormat(dateFormat);
         request.setSubmittedOnDate(formattedDate);

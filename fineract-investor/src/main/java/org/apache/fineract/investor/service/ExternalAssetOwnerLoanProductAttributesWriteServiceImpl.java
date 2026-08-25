@@ -153,8 +153,7 @@ public class ExternalAssetOwnerLoanProductAttributesWriteServiceImpl implements 
             if (implementingClass.isEnum()) {
                 for (Object obj : implementingClass.getEnumConstants()) {
                     ExternalAssetOwnerLoanProductAttribute objEnum = (ExternalAssetOwnerLoanProductAttribute) obj;
-                    if (objEnum.getAttributeKey().equals(attributeKey)
-                            && objEnum.getAttributeValue().equals(attributeValue.toUpperCase())) {
+                    if (objEnum.getAttributeKey().equals(attributeKey) && objEnum.validate(attributeValue)) {
                         return;
                     }
                 }

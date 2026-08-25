@@ -161,7 +161,6 @@ public class TellerWritePlatformServiceJpaImpl implements TellerWritePlatformSer
     @Override
     @Transactional
     public CommandProcessingResult deleteTeller(Long tellerId) {
-        // TODO Auto-generated method stub
 
         Teller teller = tellerRepositoryWrapper.findOneWithNotFoundDetection(tellerId);
         Set<Cashier> isTellerIdPresentInCashier = teller.getCashiers();
@@ -354,31 +353,6 @@ public class TellerWritePlatformServiceJpaImpl implements TellerWritePlatformSer
             final Cashier cashier = this.cashierRepository.findById(cashierId).orElseThrow(() -> new CashierNotFoundException(cashierId));
 
             this.fromApiJsonDeserializer.validateForCashTxnForCashier(command.json());
-
-            // TODO: can we please remove this whole block?!? this is 20 lines of dead code!!!
-            final String entityType = command.stringValueOfParameterNamed("entityType");
-            if (entityType != null) {
-                if (entityType.equals("loan account")) {
-                    // TODO : Check if loan account exists
-                    // LoanAccount loan = null;
-                    // if (loan == null) { throw new
-                    // LoanAccountFoundException(entityId); }
-                } else if (entityType.equals("savings account")) {
-                    // TODO : Check if loan account exists
-                    // SavingsAccount savingsaccount = null;
-                    // if (savingsaccount == null) { throw new
-                    // SavingsAccountNotFoundException(entityId); }
-
-                }
-                if (entityType.equals("client")) {
-                    // TODO: Check if client exists
-                    // Client client = null;
-                    // if (client == null) { throw new
-                    // ClientNotFoundException(entityId); }
-                } else {
-                    // TODO : Invalid type handling
-                }
-            }
 
             final CashierTransaction cashierTxn = CashierTransaction.fromJson(cashier, command);
             cashierTxn.setTxnType(txnType.getId());

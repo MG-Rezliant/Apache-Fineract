@@ -18,13 +18,20 @@
  */
 package org.apache.fineract.integrationtests;
 
+import io.restassured.builder.RequestSpecBuilder;
+import io.restassured.builder.ResponseSpecBuilder;
+import io.restassured.http.ContentType;
+import io.restassured.specification.RequestSpecification;
+import io.restassured.specification.ResponseSpecification;
 import java.time.format.DateTimeFormatter;
 import org.apache.fineract.client.models.PostSavingsAccountsAccountIdRequest;
 import org.apache.fineract.client.models.PostSavingsAccountsAccountIdResponse;
 import org.apache.fineract.client.models.PostSavingsAccountsRequest;
 import org.apache.fineract.client.models.PostSavingsAccountsResponse;
 import org.apache.fineract.integrationtests.client.IntegrationTest;
+import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.Utils;
+import org.apache.fineract.integrationtests.common.savings.SavingsProductHelper;
 import org.apache.fineract.integrationtests.common.savings.SavingsTestLifecycleExtension;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -47,15 +54,28 @@ public class SavingsAccountsTest extends IntegrationTest {
     private final String locale = "en";
     private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern(dateFormat);
     private final String formattedDate = dateFormatter.format(Utils.getLocalDateOfTenant());
-    private int savingId = 1;
+    // static: JUnit uses a new test instance per method, so instance fields do not carry between the ordered tests
+    private static long clientId;
+    private static long productId;
+    private static int savingId;
 
     @Test
     @Order(1)
     void submitSavingsAccountsApplication() {
         LOG.info("------------------------------ CREATING NEW SAVINGS ACCOUNT APPLICATION ---------------------------------------");
+        // create a dedicated active client and savings product instead of relying on entities created by other test
+        // classes in the same shard
+        final RequestSpecification requestSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build();
+        requestSpec.header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey());
+        final ResponseSpecification responseSpec = new ResponseSpecBuilder().expectStatusCode(200).build();
+        clientId = ClientHelper.createClient(requestSpec, responseSpec);
+        final String savingsProductJSON = new SavingsProductHelper().withInterestCompoundingPeriodTypeAsDaily()
+                .withInterestPostingPeriodTypeAsQuarterly().withInterestCalculationPeriodTypeAsDailyBalance().build();
+        productId = SavingsProductHelper.createSavingsProduct(savingsProductJSON, requestSpec, responseSpec);
+
         PostSavingsAccountsRequest request = new PostSavingsAccountsRequest();
-        request.setClientId(1L);
-        request.setProductId(1L);
+        request.setClientId(clientId);
+        request.setProductId(productId);
         request.setLocale(locale);
         request.setDateFormat(dateFormat);
         request.submittedOnDate(formattedDate);

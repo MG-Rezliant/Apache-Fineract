@@ -63,6 +63,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.avro.loan.v1.LoanAccountDataV1;
 import org.apache.fineract.avro.loan.v1.LoanChargePaidByDataV1;
 import org.apache.fineract.avro.loan.v1.LoanStatusEnumDataV1;
@@ -107,6 +108,7 @@ import org.apache.fineract.client.models.PaymentAllocationOrder;
 import org.apache.fineract.client.models.PostAddAndDeleteDisbursementDetailRequest;
 import org.apache.fineract.client.models.PostClientsResponse;
 import org.apache.fineract.client.models.PostLoansDisbursementData;
+import org.apache.fineract.client.models.PostLoansLoanIdOriginatorData;
 import org.apache.fineract.client.models.PostLoansLoanIdRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdResponse;
 import org.apache.fineract.client.models.PostLoansLoanIdTransactionsRequest;
@@ -147,6 +149,7 @@ import org.apache.fineract.test.helper.CodeHelper;
 import org.apache.fineract.test.helper.ErrorMessageHelper;
 import org.apache.fineract.test.helper.Utils;
 import org.apache.fineract.test.messaging.EventAssertion;
+import org.apache.fineract.test.messaging.EventFailureDiagnostics;
 import org.apache.fineract.test.messaging.config.EventProperties;
 import org.apache.fineract.test.messaging.config.JobPollingProperties;
 import org.apache.fineract.test.messaging.event.EventCheckHelper;
@@ -195,6 +198,7 @@ public class LoanStepDef extends AbstractStepDef {
     private final BusinessDateHelper businessDateHelper;
     private final FineractFeignClient fineractClient;
     private final EventAssertion eventAssertion;
+    private final EventFailureDiagnostics eventFailureDiagnostics;
     private final PaymentTypeResolver paymentTypeResolver;
     private final LoanProductResolver loanProductResolver;
     private final LoanRequestFactory loanRequestFactory;
@@ -1656,6 +1660,50 @@ public class LoanStepDef extends AbstractStepDef {
         eventCheckHelper.loanBalanceChangedEventCheck(loanId);
     }
 
+    /**
+     * Disburses the current loan with the originator external ID stored under
+     * {@link TestContextKey#ORIGINATOR_EXTERNAL_ID}.
+     */
+    @And("Admin successfully disburse the loan on {string} with {string} EUR transaction amount and the originator")
+    public void disburseLoanWithOriginator(final String actualDisbursementDate, final String transactionAmount) throws IOException {
+        final String originatorExternalId = testContext().get(TestContextKey.ORIGINATOR_EXTERNAL_ID);
+        disburseLoanWithOriginatorExternalIds(actualDisbursementDate, transactionAmount, List.of(originatorExternalId));
+    }
+
+    /**
+     * Disburses the current loan with the second originator external ID stored under
+     * {@link TestContextKey#ORIGINATOR_SECOND_EXTERNAL_ID}.
+     */
+    @And("Admin successfully disburse the loan on {string} with {string} EUR transaction amount and the second originator")
+    public void disburseLoanWithSecondOriginator(final String actualDisbursementDate, final String transactionAmount) throws IOException {
+        final String originatorExternalId = testContext().get(TestContextKey.ORIGINATOR_SECOND_EXTERNAL_ID);
+        disburseLoanWithOriginatorExternalIds(actualDisbursementDate, transactionAmount, List.of(originatorExternalId));
+    }
+
+    /**
+     * Disburses the current loan with an explicit empty originator list so existing originator mappings are detached.
+     */
+    @And("Admin successfully disburse the loan on {string} with {string} EUR transaction amount and empty originators")
+    public void disburseLoanWithEmptyOriginators(final String actualDisbursementDate, final String transactionAmount) throws IOException {
+        disburseLoanWithOriginatorExternalIds(actualDisbursementDate, transactionAmount, List.of());
+    }
+
+    /**
+     * Disburses the current loan without originators in the request body (field omitted / null), which must leave
+     * existing loan-originator mappings untouched.
+     */
+    @And("Admin successfully disburse the loan on {string} with {string} EUR transaction amount and null originators")
+    public void disburseLoanWithNullOriginators(final String actualDisbursementDate, final String transactionAmount) throws IOException {
+        final PostLoansResponse loanResponse = testContext().get(TestContextKey.LOAN_CREATE_RESPONSE);
+        assertNotNull(loanResponse);
+        final long loanId = loanResponse.getLoanId();
+        final PostLoansLoanIdRequest disburseRequest = loanRequestFactory.defaultLoanDisburseRequest()
+                .actualDisbursementDate(actualDisbursementDate).transactionAmount(new BigDecimal(transactionAmount));
+        disburseRequest.originators(null);
+
+        performLoanDisbursementAndVerifyStatus(loanId, disburseRequest);
+    }
+
     @And("Admin successfully add disbursement detail to the loan on {string} with {double} EUR transaction amount")
     public void addDisbursementDetailToLoan(String expectedDisbursementDate, Double disbursementAmount) {
         PostLoansResponse loanResponse = testContext().get(TestContextKey.LOAN_CREATE_RESPONSE);
@@ -2596,6 +2644,28 @@ public class LoanStepDef extends AbstractStepDef {
                 Map.of("staffInSelectedOfficeOnly", "false", "associations", "transactions")));
         List<GetLoansLoanIdTransactions> transactions = loanDetailsResponse.getTransactions();
         assertThat(transactions.size()).isZero();
+    }
+
+    @Then("Loan has no {string} transaction with transaction date later than {string}, including reversed transactions")
+    public void loanHasNoTransactionWithDateLaterThan(final String transactionTypeValue, final String dateLimit) {
+        final PostLoansResponse loanCreateResponse = testContext().get(TestContextKey.LOAN_CREATE_RESPONSE);
+        final long loanId = loanCreateResponse.getLoanId();
+        final LocalDate latestAllowedDate = LocalDate.parse(dateLimit, FORMATTER);
+        final String transactionTypeCode = "loanTransactionType." + StringUtils.uncapitalize(transactionTypeValue.replace(" ", ""));
+
+        final GetLoansLoanIdTransactionsResponse transactionsResponse = ok(() -> fineractClient.loanTransactions()
+                .retrieveTransactionsByLoanId(loanId, Map.<String, Object>of("page", 0, "size", 200), Map.of()));
+        assert transactionsResponse != null && transactionsResponse.getContent() != null;
+
+        final List<String> offendingTransactions = transactionsResponse.getContent().stream()
+                .filter(t -> t.getType() != null && transactionTypeCode.equals(t.getType().getCode()))
+                .filter(t -> t.getDate() != null && t.getDate().isAfter(latestAllowedDate))
+                .map(t -> "id=%s, date=%s, submittedOnDate=%s, reversed=%s".formatted(t.getId(), t.getDate(), t.getSubmittedOnDate(),
+                        t.getReversedOnDate() != null || Boolean.TRUE.equals(t.getManuallyReversed())))
+                .toList();
+
+        assertThat(offendingTransactions).as("Loan %s has %s transaction(s) with transaction date later than %s: %s", loanId,
+                transactionTypeValue, dateLimit, offendingTransactions).isEmpty();
     }
 
     @Then("Loan Charges tab has a given charge with the following data:")
@@ -4359,6 +4429,22 @@ public class LoanStepDef extends AbstractStepDef {
         eventCheckHelper.loanDisbursalTransactionEventCheck(loanDisburseResponse);
     }
 
+    /**
+     * Builds and submits a disbursement request for the current loan with the supplied originator external IDs.
+     */
+    private void disburseLoanWithOriginatorExternalIds(final String actualDisbursementDate, final String transactionAmount,
+            final List<String> originatorExternalIds) throws IOException {
+        final PostLoansResponse loanResponse = testContext().get(TestContextKey.LOAN_CREATE_RESPONSE);
+        assertNotNull(loanResponse);
+        final long loanId = loanResponse.getLoanId();
+        final PostLoansLoanIdRequest disburseRequest = loanRequestFactory.defaultLoanDisburseRequest()
+                .actualDisbursementDate(actualDisbursementDate).transactionAmount(new BigDecimal(transactionAmount));
+        disburseRequest.originators(
+                originatorExternalIds.stream().map(externalId -> new PostLoansLoanIdOriginatorData().externalId(externalId)).toList());
+
+        performLoanDisbursementAndVerifyStatus(loanId, disburseRequest);
+    }
+
     private LoanStatusEnumDataV1 getExpectedStatus(String loanStatus) {
         LoanStatusEnumDataV1 result = new LoanStatusEnumDataV1();
         switch (loanStatus) {
@@ -5848,8 +5934,16 @@ public class LoanStepDef extends AbstractStepDef {
                 .orElseThrow(() -> new IllegalStateException(String.format("No Buy Down Fee Amortization transaction found on %s", date)));
         Long buyDownFeeAmortizationTransactionId = buyDownFeeAmortizationTransaction.getId();
 
-        eventAssertion.assertEventRaised(LoanBuyDownFeeAmortizationTransactionCreatedBusinessEvent.class,
-                buyDownFeeAmortizationTransactionId);
+        try {
+            eventAssertion.assertEventRaised(LoanBuyDownFeeAmortizationTransactionCreatedBusinessEvent.class,
+                    buyDownFeeAmortizationTransactionId);
+        } catch (AssertionError e) {
+            // This assertion fails intermittently in CI only; the diagnostics say whether the event was never
+            // persisted or merely never delivered.
+            eventFailureDiagnostics.reportMissingEvent("LoanBuyDownFeeAmortizationTransactionCreatedBusinessEvent", loanId,
+                    buyDownFeeAmortizationTransactionId);
+            throw e;
+        }
     }
 
     @Then("LoanBuyDownFeeAdjustmentTransactionCreatedBusinessEvent is created on {string}")

@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.workingcapitalloan.data.TransactionDateAndAmountHolder;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoan;
@@ -84,6 +85,9 @@ class WorkingCapitalLoanBreachScheduleServiceImplTest {
     @Mock
     private WorkingCapitalLoanBalanceRepository balanceRepository;
 
+    @Mock
+    private BusinessEventNotifierService businessEventNotifierService;
+
     private WorkingCapitalLoanBreachScheduleServiceImpl underTest;
 
     private WorkingCapitalLoan loan;
@@ -99,7 +103,7 @@ class WorkingCapitalLoanBreachScheduleServiceImplTest {
         MoneyHelper.initializeTenantRoundingMode("default", RoundingMode.HALF_UP.ordinal());
         ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BUSINESS_DATE, LocalDate.of(2026, 6, 1))));
         underTest = new WorkingCapitalLoanBreachScheduleServiceImpl(repository, mapper, loanRepository, breachActionRepository,
-                transactionRepository, balanceRepository);
+                transactionRepository, balanceRepository, businessEventNotifierService);
         loan = new WorkingCapitalLoan();
         loan.setId(LOAN_ID);
         balance = WorkingCapitalLoanBalance.createFor(loan);
@@ -271,8 +275,6 @@ class WorkingCapitalLoanBreachScheduleServiceImplTest {
 
     @Test
     void applyRepaymentUndo_reflipsBreachForAlreadyEndedPeriod() {
-        // PS-3176 tester feedback: undoing a repayment that had fully settled an already-ended period must
-        // re-flag it as breached instead of leaving the stale breach=false from when it was still paid off.
         final LocalDate transactionDate = LocalDate.of(2026, 5, 15);
         final WorkingCapitalLoanBreachSchedule endedPeriod = period(2, LocalDate.of(2026, 5, 11), LocalDate.of(2026, 5, 20),
                 BigDecimal.valueOf(100), BigDecimal.valueOf(100), BigDecimal.ZERO);

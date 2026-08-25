@@ -29,9 +29,14 @@ Feature: Working Capital Loan Charge After Maturity
       | timeline.actualMaturityDate  | 2026-06-01 |
       | delinquencyStartDate         | null       |
       | breachStartDate              | null       |
+    # The breach schedule now exists from disbursement, so adding the charge extends it forward to cover the
+    # charge date rather than creating its first period. Period 1 was fully repaid inside its own window, so it
+    # carries nothing outstanding and is evaluated as not breached.
     And Working Capital loan breach schedule has the following data:
       | periodNumber | fromDate   | toDate     | numberOfDays | minPaymentAmount | outstandingAmount | nearBreach | breach |
-      | 1            | 2026-01-01 | 2026-02-28 | 59           | 12.30            | 12.30             | null       | null   |
+      | 1            | 2026-01-01 | 2026-02-28 | 59           | 12.30            | 0.00              | null       | false  |
+      | 2            | 2026-03-01 | 2026-04-30 | 61           | 12.30            | 12.30             | null       | null   |
+      | 3            | 2026-05-01 | 2026-06-30 | 61           | 12.30            | 12.30             | null       | null   |
     Then Admin closes the Working Capital loan with a full repayment on "01 June 2026"
     And Working Capital loan status will be "CLOSED_OBLIGATIONS_MET"
 
@@ -125,14 +130,21 @@ Feature: Working Capital Loan Charge After Maturity
       | timeline.actualMaturityDate  | 2026-09-01 |
       | delinquencyStartDate         | null       |
       | breachStartDate              | null       |
+    # The breach schedule now exists from disbursement, so adding the charge extends it forward to cover the
+    # charge date rather than creating its first period. Period 1 was fully repaid inside its own window, so it
+    # carries nothing outstanding and is evaluated as not breached.
     And Working Capital loan breach schedule has the following data:
       | periodNumber | fromDate   | toDate     | numberOfDays | minPaymentAmount | outstandingAmount | nearBreach | breach |
-      | 1            | 2026-01-01 | 2026-02-28 | 59           | 12.30            | 12.30             | null       | null   |
+      | 1            | 2026-01-01 | 2026-02-28 | 59           | 12.30            | 0.00              | null       | false  |
+      | 2            | 2026-03-01 | 2026-04-30 | 61           | 12.30            | 12.30             | null       | null   |
+      | 3            | 2026-05-01 | 2026-06-30 | 61           | 12.30            | 12.30             | null       | null   |
+      | 4            | 2026-07-01 | 2026-08-31 | 62           | 12.30            | 12.30             | null       | null   |
+      | 5            | 2026-09-01 | 2026-10-31 | 61           | 12.30            | 12.30             | null       | null   |
     Then Admin closes the Working Capital loan with a full repayment on "01 September 2026"
     And Working Capital loan status will be "CLOSED_OBLIGATIONS_MET"
 
   @TestRailId:C85611
-  Scenario: Verify charges added after Maturity date, closed, overpaid loan - UC5: active loan past maturity updates maturity and schedules on charge
+  Scenario: Verify charges added after Maturity date, closed, overpaid loan - UC5: a loan left unpaid is never past its own maturity, so a charge does not re-date it
     When Admin sets the business date to "01 January 2026"
     And Admin creates a client with random data and creates-approves-disburses a working capital loan with the following data:
       | LoanProduct             | submittedOnDate | expectedDisbursementDate | principalAmount | totalPayment | periodPaymentRate | discount |
@@ -148,10 +160,10 @@ Feature: Working Capital Loan Charge After Maturity
       | Fee Amount | Fee Outstanding | Fee Paid | Penalty Amount | Penalty Outstanding | Penalty Paid |
       | 100.0      | 100.0           | 0.0      | 0.0            | 0.0                 | 0.0          |
     And Working capital loan details has the following field values:
-      | balance.totalOutstanding     | 1100.0     |
-      | balance.principalOutstanding | 1000.0     |
-      | timeline.actualMaturityDate  | 2026-10-01 |
-      | delinquencyStartDate         | present    |
+      | balance.totalOutstanding     | 1100.0  |
+      | balance.principalOutstanding | 1000.0  |
+      | timeline.actualMaturityDate  | null    |
+      | delinquencyStartDate         | present |
       | breachStartDate              | 2026-01-01 |
     And Working Capital loan breach schedule has the following data:
       | periodNumber | fromDate   | toDate     | numberOfDays | minPaymentAmount | outstandingAmount | nearBreach | breach |
@@ -159,7 +171,7 @@ Feature: Working Capital Loan Charge After Maturity
       | 2            | 2026-03-01 | 2026-04-30 | 61           | 12.30            | 12.30             | null       | true   |
       | 3            | 2026-05-01 | 2026-06-30 | 61           | 12.30            | 12.30             | null       | true   |
       | 4            | 2026-07-01 | 2026-08-31 | 62           | 12.30            | 12.30             | null       | true   |
-      | 5            | 2026-09-01 | 2026-10-31 | 61           | 12.30            | 12.30             | null       | null   |
+      | 5            | 2026-09-01 | 2026-10-31 | 61           | 12.30            | 12.30             | true       | null   |
     Then Admin closes the Working Capital loan with a full repayment on "01 October 2026"
     And Working Capital loan status will be "CLOSED_OBLIGATIONS_MET"
 
@@ -252,6 +264,37 @@ Feature: Working Capital Loan Charge After Maturity
       | WCLP         | 2026-08-01      | 2026-08-01               | Overpaid | 1000.0    | 1000.0            | 100000.0           | 18.0              | null     | 1000.0             | 100.0             |
     Then Customer makes credit balance refund on "20 August 2026" with 100.0 transaction amount on Working Capital loan
     And Working Capital loan status will be "CLOSED_OBLIGATIONS_MET"
+
+  @TestRailId:C89815
+  Scenario: Verify overpayment consumed by a post-maturity charge is attributed to the repayment that funded it
+    When Admin sets the business date to "01 January 2026"
+    And Admin creates a client with random data and creates-approves-disburses a working capital loan with the following data:
+      | LoanProduct | submittedOnDate | expectedDisbursementDate | principalAmount | totalPayment | periodPaymentRate | discount |
+      | WCLP        | 01 January 2026 | 01 January 2026          | 1000             | 100000       | 18                | 0        |
+    When Admin sets the business date to "10 January 2026"
+    And Customer makes repayment on "10 January 2026" with 1150.0 transaction amount on Working Capital loan
+    Then Working Capital loan status will be "OVERPAID"
+    And Working Capital loan balance overpaymentAmount is "150.00"
+    And Working Capital Loan has transactions:
+      | transactionDate | type         | transactionAmount | principalPortion | feeChargesPortion | penaltyChargesPortion | reversed |
+      | 01 January 2026 | Disbursement | 1000.0             | 1000.0            | 0.0               | 0.0                   | false    |
+      | 10 January 2026 | Repayment    | 1150.0             | 1000.0            | 0.0               | 0.0                   | false    |
+    When Admin sets the business date to "15 January 2026"
+    And Admin adds "WORKING_CAPITAL_SPECIFIED_DUE_DATE_FEE" specified due date charge to working capital loan with "20 January 2026" due date and 100.0 transaction amount
+    Then Working Capital loan status will be "OVERPAID"
+    And Working Capital loan balance overpaymentAmount is "50.00"
+    And Working Capital Loan charge balances has the following data:
+      | Fee Amount | Fee Outstanding | Fee Paid | Penalty Amount | Penalty Outstanding | Penalty Paid |
+      | 100.0      | 0.0             | 100.0    | 0.0            | 0.0                 | 0.0          |
+    # The fee is settled entirely out of the day-10 repayment's surplus, so that transaction's own allocation grows
+    # by the settled amount, and the charge's paid-by row points at it.
+    And Working Capital Loan has transactions:
+      | transactionDate | type         | transactionAmount | principalPortion | feeChargesPortion | penaltyChargesPortion | reversed |
+      | 01 January 2026 | Disbursement | 1000.0             | 1000.0            | 0.0               | 0.0                   | false    |
+      | 10 January 2026 | Repayment    | 1150.0             | 1000.0            | 100.0             | 0.0                   | false    |
+    And Working Capital Loan "REPAYMENT" transaction on "10 January 2026" has the following charge paid-by data:
+      | Charge Name              | Amount |
+      | Working Capital Loan Fee | 100.0  |
 
   @TestRailId:C85615
   Scenario: Verify charges added after Maturity date, closed, overpaid loan - UC9: charge due date before business date is rejected (Negative)

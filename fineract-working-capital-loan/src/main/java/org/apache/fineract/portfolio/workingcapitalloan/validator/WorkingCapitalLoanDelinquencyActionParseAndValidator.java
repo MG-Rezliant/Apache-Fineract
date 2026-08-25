@@ -29,7 +29,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -46,8 +48,9 @@ import org.apache.fineract.portfolio.delinquency.domain.DelinquencyMinimumPaymen
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoan;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanDelinquencyAction;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanDelinquencyPauseUtils;
-import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanDelinquencyRangeSchedule;
+import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanDelinquencyRangeScheduleEvaluationUtils;
 import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanDisbursementDetails;
+import org.apache.fineract.portfolio.workingcapitalloan.domain.WorkingCapitalLoanPausePeriodUtils;
 import org.apache.fineract.portfolio.workingcapitalloan.repository.WorkingCapitalLoanDelinquencyActionRepository;
 import org.apache.fineract.portfolio.workingcapitalloan.repository.WorkingCapitalLoanDelinquencyRangeScheduleRepository;
 import org.springframework.stereotype.Component;
@@ -84,7 +87,7 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
         if (DelinquencyAction.PAUSE.equals(action)) {
             validatePause(parsedAction, workingCapitalLoan, existing, dataValidator);
         } else if (DelinquencyAction.RESCHEDULE.equals(action)) {
-            validateReschedule(parsedAction, workingCapitalLoan, dataValidator);
+            validateReschedule(parsedAction, workingCapitalLoan, existing, dataValidator);
         } else if (DelinquencyAction.RESUME.equals(action)) {
             validateResume(parsedAction, existing, dataValidator);
         } else if (DelinquencyAction.RESET.equals(parsedAction.getAction())) {
@@ -182,7 +185,6 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
         validateBothDatesProvided(action, dataValidator);
         validateStartBeforeEnd(action, dataValidator);
         validateNotBeforeDisbursement(action, workingCapitalLoan, dataValidator);
-        validateNotInEvaluatedPeriod(action, workingCapitalLoan, dataValidator);
         validateNoOverlap(action, existing, dataValidator);
     }
 
@@ -234,7 +236,7 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
     }
 
     private void validateReschedule(final WorkingCapitalLoanDelinquencyAction action, final WorkingCapitalLoan workingCapitalLoan,
-            final DataValidatorBuilder dataValidator) {
+            final List<WorkingCapitalLoanDelinquencyAction> existing, final DataValidatorBuilder dataValidator) {
         validateLoanIsDisbursed(workingCapitalLoan, dataValidator);
         validateScheduleExists(workingCapitalLoan, dataValidator);
 
@@ -250,6 +252,26 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
         }
         if (hasFrequencyGroup) {
             validateFrequencyGroupProvided(action, dataValidator);
+            if (action.getFrequency() != null && action.getFrequency() > 0 && action.getFrequencyType() != null) {
+                validateFrequencyDoesNotEndBeforeBusinessDate(action, workingCapitalLoan, existing, dataValidator);
+            }
+        }
+    }
+
+    /**
+     * Rejects a frequency change whose resulting period end date falls before the business date. The candidate end date
+     * is derived exactly as the re-date derives it: from the current open period fromDate, extended by the pauses.
+     */
+    private void validateFrequencyDoesNotEndBeforeBusinessDate(final WorkingCapitalLoanDelinquencyAction action,
+            final WorkingCapitalLoan workingCapitalLoan, final List<WorkingCapitalLoanDelinquencyAction> existing,
+            final DataValidatorBuilder dataValidator) {
+        final LocalDate businessDate = DateUtils.getBusinessLocalDate();
+        final Optional<LocalDate> candidateToDate = rangeScheduleRepository.findCurrentOpenPeriod(workingCapitalLoan.getId(), businessDate)
+                .map(currentPeriod -> WorkingCapitalLoanDelinquencyRangeScheduleEvaluationUtils.calculateRescheduledToDate(
+                        currentPeriod.getFromDate(), action.getFrequency(), action.getFrequencyType(), existing));
+        if (candidateToDate.filter(toDate -> toDate.isBefore(businessDate)).isPresent()) {
+            failGeneralValidation(dataValidator, "reschedule.frequency.results.endDate.before.businessDate",
+                    "Frequency change results a delinquency period endDate before current businessDate is not allowed");
         }
     }
 
@@ -333,7 +355,7 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
             return null;
         }
         try {
-            return DelinquencyMinimumPaymentType.valueOf(value.toUpperCase());
+            return DelinquencyMinimumPaymentType.valueOf(value.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             failParameterValidation(dataValidator, MINIMUM_PAYMENT_TYPE, "invalid.minimum.payment.type",
                     "Invalid minimum payment type: " + value + ". Supported: PERCENTAGE, FLAT");
@@ -347,7 +369,7 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
             return null;
         }
         try {
-            return DelinquencyFrequencyType.valueOf(value.toUpperCase());
+            return DelinquencyFrequencyType.valueOf(value.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             failParameterValidation(dataValidator, FREQUENCY_TYPE, "invalid.frequency.type",
                     "Invalid frequency type: " + value + ". Supported: DAYS, WEEKS, MONTHS, YEARS");
@@ -380,9 +402,7 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
     }
 
     private void validateScheduleExists(final WorkingCapitalLoan workingCapitalLoan, final DataValidatorBuilder dataValidator) {
-        final List<WorkingCapitalLoanDelinquencyRangeSchedule> periods = rangeScheduleRepository
-                .findByLoanIdOrderByPeriodNumberAsc(workingCapitalLoan.getId());
-        if (periods.isEmpty()) {
+        if (!rangeScheduleRepository.existsByLoanId(workingCapitalLoan.getId())) {
             failGeneralValidation(dataValidator, "no.schedule", "Reschedule action requires an existing delinquency range schedule.");
         }
     }
@@ -430,30 +450,14 @@ public class WorkingCapitalLoanDelinquencyActionParseAndValidator extends ParseA
         }
     }
 
-    private void validateNotInEvaluatedPeriod(final WorkingCapitalLoanDelinquencyAction action, final WorkingCapitalLoan workingCapitalLoan,
-            final DataValidatorBuilder dataValidator) {
-        if (action.getStartDate() == null) {
-            return;
-        }
-        final List<WorkingCapitalLoanDelinquencyRangeSchedule> periods = rangeScheduleRepository
-                .findByLoanIdOrderByPeriodNumberAsc(workingCapitalLoan.getId());
-        final boolean startsInEvaluatedPeriod = periods.stream().filter(p -> p.getMinPaymentCriteriaMet() != null)
-                .anyMatch(p -> !action.getStartDate().isAfter(p.getToDate()));
-        if (startsInEvaluatedPeriod) {
-            failParameterValidation(dataValidator, START_DATE, "pause.in.evaluated.period",
-                    "Pause start date cannot fall within or before an already evaluated delinquency range period");
-        }
-    }
-
     private void validateNoOverlap(final WorkingCapitalLoanDelinquencyAction parsed,
             final List<WorkingCapitalLoanDelinquencyAction> existing, final DataValidatorBuilder dataValidator) {
         if (parsed.getStartDate() == null || parsed.getEndDate() == null) {
             return;
         }
         final boolean overlaps = existing.stream().filter(e -> DelinquencyAction.PAUSE.equals(e.getAction()))
-                .anyMatch(e -> WorkingCapitalLoanDelinquencyPauseUtils.inclusivePausePeriodsOverlap(parsed.getStartDate(),
-                        parsed.getEndDate(), e.getStartDate(),
-                        WorkingCapitalLoanDelinquencyPauseUtils.resolveEffectivePauseEnd(e, existing)));
+                .anyMatch(e -> WorkingCapitalLoanPausePeriodUtils.inclusivePausePeriodsOverlap(parsed.getStartDate(), parsed.getEndDate(),
+                        e.getStartDate(), WorkingCapitalLoanDelinquencyPauseUtils.resolveEffectivePauseEnd(e, existing)));
         if (overlaps) {
             failGeneralValidation(dataValidator, "overlapping", "Delinquency pause period cannot overlap with another pause period");
         }
