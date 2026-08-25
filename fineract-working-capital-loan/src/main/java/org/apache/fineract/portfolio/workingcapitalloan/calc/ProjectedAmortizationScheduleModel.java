@@ -825,6 +825,14 @@ public final class ProjectedAmortizationScheduleModel {
         result.add(createDisbursementPayment());
 
         BigDecimal cumulativeActualAmort = BigDecimal.ZERO;
+        // The same total before it is rounded to the currency. Kept alongside so each period's rounding is taken off
+        // the exact running figure rather than compounded onto the previous period's rounding.
+        BigDecimal exactCumulativeActualAmort = BigDecimal.ZERO;
+        // And the same total again, measured the way the expected column measures itself - every period rounded before
+        // it is added. Nothing reports this figure; it exists only to rewind the expected column at a settled period,
+        // and it has to share that column's units or the rewind stops being a no-op for an instalment paid in full and
+        // on time, which would move the plan of a loan that is behaving perfectly.
+        BigDecimal rewindBasis = BigDecimal.ZERO;
         BigDecimal cumulativeExpectedAmort = BigDecimal.ZERO;
         BigDecimal runningActualBalance = netDisb;
         for (int i = 0; i < scheduleTerm(); i++) {
@@ -851,15 +859,23 @@ public final class ProjectedAmortizationScheduleModel {
             // than what they had really paid down.
             if (hasPositivePayment) {
                 // The period earns whatever the running total moved by, so the figure shown, the figure accumulated
-                // and the figure the balance is carried on are all one number. Rounded, because the settled-period
-                // rewind below assigns this total onto the expected one, which comes from a list of Money and is
-                // already rounded - the assignment is only the no-op it is meant to be for an instalment paid in full
-                // and on time if both were measured the same way. Capped at the fee, so the periods sum to exactly the
-                // fee however the rounding falls: the last one absorbs the residual instead of the loan booking a cent
-                // of income it never held, and a balance carried on the same figures closes at exactly zero.
+                // and the figure the balance is carried on are all one number.
+                //
+                // The running total is kept exact and rounded once, rather than accumulated from periods rounded one by
+                // one. Both are a cent apart on any given day, but only this one stays a cent apart from the truth: a
+                // per-period rounding is a fresh half-cent error every period, and over a few hundred of them the sum
+                // wanders several cents off - far enough that a fully repaid loan closed six cents over the fee in one
+                // direction and seven cents short of it in the other. Rounding the cumulative figure instead holds the
+                // whole column to within half a cent of the fee the payments have really earned, so a loan that has
+                // paid off its term earns exactly the fee.
+                //
+                // Still capped at the fee: past maturity the projection keeps accruing on a balance nothing is paying
+                // down, so the plan the column is consumed from can offer more fee than there is to earn.
                 final BigDecimal cumulativeActualBefore = cumulativeActualAmort;
-                cumulativeActualAmort = cumulativeActualAmort.add(money(actualAmortizations.get(i)).getAmount(), mc).min(discountFee);
+                exactCumulativeActualAmort = exactCumulativeActualAmort.add(actualAmortizations.get(i), mc);
+                cumulativeActualAmort = money(exactCumulativeActualAmort).getAmount().min(discountFee);
                 actualAmortization = cumulativeActualAmort.subtract(cumulativeActualBefore, mc);
+                rewindBasis = rewindBasis.add(money(actualAmortizations.get(i)).getAmount(), mc).min(discountFee);
                 runningActualBalance = runningActualBalance.subtract(periodPayment, mc).add(actualAmortization, mc);
                 incomeModification = actualAmortization.subtract(safeExpectedAmort, mc);
             } else {
@@ -884,7 +900,7 @@ public final class ProjectedAmortizationScheduleModel {
             // really earned, so a loan two instalments behind shows the same fee balance two days later. A nil payment
             // earns nothing, which is exactly what a missed instalment should do to the fee.
             if (periodPayment != null) {
-                cumulativeExpectedAmort = cumulativeActualAmort;
+                cumulativeExpectedAmort = rewindBasis;
             }
         }
 
@@ -1042,9 +1058,9 @@ public final class ProjectedAmortizationScheduleModel {
                 continue;
             }
             final BigDecimal periodsConsumed = periodsWorthOf(paid, expectedPaymentForDay(dayIndex));
-            // Rounded to the currency, exactly as buildPayments rounds the same figure before folding it into its
-            // running fee total: this is the residual the settle works from, so measuring it any other way than the
-            // rewind it is predicting leaves the deferred balance closing off zero.
+            // Rounded per period, exactly as the rewind this is predicting measures the same running total: the settle
+            // works from this residual, so measuring it any other way than the rewind leaves the deferred balance
+            // closing off zero.
             //
             // Deliberately uncapped, though. Capping what the payments have earned at the fee looks harmless - they can
             // never earn more than there is - but rounding each period can put their sum a cent either side of it.
