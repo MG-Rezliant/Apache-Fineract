@@ -45,6 +45,7 @@ import org.apache.fineract.client.models.GetLoansLoanIdTransactionsTemplateRespo
 import org.apache.fineract.client.models.GetLoansLoanIdTransactionsTransactionIdResponse;
 import org.apache.fineract.client.models.PostDelinquencyBucketResponse;
 import org.apache.fineract.client.models.PostDelinquencyRangeResponse;
+import org.apache.fineract.client.models.PostLoanProductsRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesChargeIdRequest;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesChargeIdResponse;
 import org.apache.fineract.client.models.PostLoansLoanIdChargesRequest;
@@ -66,10 +67,11 @@ import org.apache.fineract.infrastructure.configuration.api.GlobalConfigurationC
 import org.apache.fineract.integrationtests.client.feign.FeignLoanTestBase;
 import org.apache.fineract.integrationtests.client.feign.helpers.FeignStaffHelper;
 import org.apache.fineract.integrationtests.client.feign.modules.ChargeRequestBuilders;
+import org.apache.fineract.integrationtests.client.feign.modules.LoanRequestBuilders;
+import org.apache.fineract.integrationtests.client.feign.modules.LoanTestData;
 import org.apache.fineract.integrationtests.common.FineractFeignClientHelper;
 import org.apache.fineract.integrationtests.common.Utils;
 import org.apache.fineract.integrationtests.common.accounting.Account;
-import org.apache.fineract.integrationtests.common.loans.LoanApplicationTestBuilder;
 import org.apache.fineract.integrationtests.common.loans.LoanProductTestBuilder;
 import org.apache.fineract.integrationtests.common.loans.LoanTransactionHelper;
 import org.apache.fineract.integrationtests.common.products.DelinquencyBucketsHelper;
@@ -96,13 +98,13 @@ public class ExternalIdSupportIntegrationTest extends FeignLoanTestBase {
             Long penalty2 = chargesHelper.createCharge(ChargeRequestBuilders.loanSpecifiedDueDateAccountTransferFee(10.0, true))
                     .getResourceId();
 
-            final String loanProductJSON = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
+            final PostLoanProductsRequest loanProductRequest = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
                     .withRepaymentAfterEvery("1").withNumberOfRepayments("1").withRepaymentTypeAsMonth().withinterestRatePerPeriod("0")
                     .withInterestRateFrequencyTypeAsMonths().withAmortizationTypeAsEqualPrincipalPayment().withInterestTypeAsFlat()
                     .withAccountingRulePeriodicAccrual(new Account[] { assetAccount, incomeAccount, expenseAccount, overpaymentAccount })
                     .withDaysInMonth("30").withDaysInYear("365").withMoratorium("0", "0")
-                    .withFeeAndPenaltyAssetAccount(assetFeeAndPenaltyAccount).build(null);
-            final Integer loanProductID = getLoanProductId(loanProductJSON);
+                    .withFeeAndPenaltyAssetAccount(assetFeeAndPenaltyAccount).buildRequest(null);
+            final Integer loanProductID = getLoanProductId(loanProductRequest);
 
             final Long clientId = createClient();
 
@@ -398,11 +400,11 @@ public class ExternalIdSupportIntegrationTest extends FeignLoanTestBase {
 
             // Create a loan with interest and test the rest of the transactions
 
-            final String loanProductWithInterestJSON = new LoanProductTestBuilder().withPrincipal("10000.0").withRepaymentTypeAsMonth()
-                    .withRepaymentAfterEvery("2").withNumberOfRepayments("5").withRepaymentTypeAsMonth().withinterestRatePerPeriod("1")
-                    .withInterestRateFrequencyTypeAsMonths().withAmortizationTypeAsEqualPrincipalPayment().withInterestTypeAsFlat()
-                    .withAccounting("1", null).build(null);
-            final Integer loanProductWithInterestID = getLoanProductId(loanProductWithInterestJSON);
+            final PostLoanProductsRequest loanProductWithInterestRequest = new LoanProductTestBuilder().withPrincipal("10000.0")
+                    .withRepaymentTypeAsMonth().withRepaymentAfterEvery("2").withNumberOfRepayments("5").withRepaymentTypeAsMonth()
+                    .withinterestRatePerPeriod("1").withInterestRateFrequencyTypeAsMonths().withAmortizationTypeAsEqualPrincipalPayment()
+                    .withInterestTypeAsFlat().withAccounting("1", null).buildRequest(null);
+            final Integer loanProductWithInterestID = getLoanProductId(loanProductWithInterestRequest);
 
             LocalDate aMonthBefore = LocalDate.of(2022, 8, 7);
             String formattedDate = dateFormatter.format(aMonthBefore);
@@ -410,14 +412,15 @@ public class ExternalIdSupportIntegrationTest extends FeignLoanTestBase {
             final Integer savingsId = openSavingsAccount(clientId, "10000.0", "01 August 2022");
 
             loanExternalIdStr = UUID.randomUUID().toString();
-            final String loanApplicationJSON = new LoanApplicationTestBuilder().withPrincipal("10000.0").withLoanTermFrequency("10")
-                    .withLoanTermFrequencyAsMonths().withNumberOfRepayments("5").withRepaymentEveryAfter("2")
-                    .withRepaymentFrequencyTypeAsMonths().withInterestRatePerPeriod("1").withInterestTypeAsFlatBalance()
-                    .withAmortizationTypeAsEqualPrincipalPayments().withInterestCalculationPeriodTypeSameAsRepaymentPeriod()
-                    .withExpectedDisbursementDate(formattedDate).withSubmittedOnDate(formattedDate).withLoanType("individual")
-                    .withExternalId(loanExternalIdStr)
-                    .build(clientId.toString(), loanProductWithInterestID.toString(), savingsId.toString());
-            final PostLoansResponse loanWithInterest = getLoanIdFromApplication(loanApplicationJSON);
+            final PostLoansResponse loanWithInterest = applyForLoanResponse(LoanRequestBuilders
+                    .legacyIndividualApplication(clientId.longValue(), loanProductWithInterestID.longValue(), "10000.0", 5,
+                            new BigDecimal("1"), formattedDate)
+                    .loanTermFrequency(10)//
+                    .repaymentEvery(2)//
+                    .interestType(LoanTestData.InterestType.FLAT)//
+                    .amortizationType(LoanTestData.AmortizationType.EQUAL_PRINCIPAL)//
+                    .externalId(loanExternalIdStr)//
+                    .linkAccountId(savingsId.longValue()));
             Integer loanWithInterestId = loanWithInterest.getResourceId().intValue();
 
             String chargeExternalId = UUID.randomUUID().toString();
@@ -664,13 +667,13 @@ public class ExternalIdSupportIntegrationTest extends FeignLoanTestBase {
             final Account expenseAccount = accountHelper.createExpenseAccount("extIdExpense");
             final Account overpaymentAccount = accountHelper.createLiabilityAccount("extIdOverpayment");
 
-            final String loanProductJSON = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
+            final PostLoanProductsRequest loanProductRequest = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
                     .withRepaymentAfterEvery("1").withNumberOfRepayments("1").withRepaymentTypeAsMonth().withinterestRatePerPeriod("0")
                     .withInterestRateFrequencyTypeAsMonths().withAmortizationTypeAsEqualPrincipalPayment().withInterestTypeAsFlat()
                     .withAccountingRulePeriodicAccrual(new Account[] { assetAccount, incomeAccount, expenseAccount, overpaymentAccount })
                     .withDaysInMonth("30").withDaysInYear("365").withMoratorium("0", "0")
-                    .withFeeAndPenaltyAssetAccount(assetFeeAndPenaltyAccount).build(null);
-            final Integer loanProductID = getLoanProductId(loanProductJSON);
+                    .withFeeAndPenaltyAssetAccount(assetFeeAndPenaltyAccount).buildRequest(null);
+            final Integer loanProductID = getLoanProductId(loanProductRequest);
 
             final Long clientId = createClient();
 
@@ -824,14 +827,14 @@ public class ExternalIdSupportIntegrationTest extends FeignLoanTestBase {
             PostDelinquencyBucketResponse delinquencyBucketResponse = DelinquencyBucketsHelper
                     .createBucket(new DelinquencyBucketRequest().name(Utils.randomStringGenerator("DLQ_B_", 10)).ranges(rangeIds));
 
-            final String loanProductJSON = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
+            final PostLoanProductsRequest loanProductRequest = new LoanProductTestBuilder().withPrincipal("1000").withRepaymentTypeAsMonth()
                     .withRepaymentAfterEvery("1").withNumberOfRepayments("1").withRepaymentTypeAsMonth().withinterestRatePerPeriod("0")
                     .withInterestRateFrequencyTypeAsMonths().withAmortizationTypeAsEqualPrincipalPayment()
                     .withInterestTypeAsDecliningBalance().withAccountingRuleAsNone()
                     .withInterestCalculationPeriodTypeAsRepaymentPeriod(true).withDaysInMonth("30").withDaysInYear("365")
                     .withMoratorium("0", "0").withDelinquencyBucket(delinquencyBucketResponse.getResourceId())
-                    .withInArrearsTolerance("1001").withMultiDisburse().withDisallowExpectedDisbursements(true).build(null);
-            final Integer loanProductID = getLoanProductId(loanProductJSON);
+                    .withInArrearsTolerance("1001").withMultiDisburse().withDisallowExpectedDisbursements(true).buildRequest(null);
+            final Integer loanProductID = getLoanProductId(loanProductRequest);
 
             final Long clientId = createClient();
 
