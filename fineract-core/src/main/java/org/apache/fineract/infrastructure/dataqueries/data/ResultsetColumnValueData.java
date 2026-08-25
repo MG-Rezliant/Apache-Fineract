@@ -19,12 +19,14 @@
 package org.apache.fineract.infrastructure.dataqueries.data;
 
 import java.io.Serializable;
+import lombok.Getter;
 
 /**
  * Immutable data object representing a possible value for a given resultset column.
  */
 public class ResultsetColumnValueData implements Serializable {
 
+    @Getter
     private final int id;
     private final String value;
     @SuppressWarnings("unused")
@@ -48,5 +50,9 @@ public class ResultsetColumnValueData implements Serializable {
 
     public boolean codeMatches(final Integer match) {
         return match.intValue() == this.id;
+    }
+
+    public String getValue() {
+        return value;
     }
 }
