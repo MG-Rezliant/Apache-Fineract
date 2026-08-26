@@ -27,6 +27,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.repository.ProgressiveLoanModelRepository;
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
+import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,5 +70,14 @@ public class ProgressiveLoanModelProcessingService {
     @Transactional(readOnly = true)
     public boolean allowedLoanStatuses(Long loanId) {
         return loanRepositoryWrapper.isLoanInAllowedStatus(loanId, allowedLoanStatuses);
+    }
+
+    @Transactional
+    public void recalculateModelAndSave(@NonNull Loan loan) {
+        ProgressiveLoanInterestScheduleModel recalculatedModel = modelProcessingService.getRecalculatedModel(loan.getId(),
+                ThreadLocalContextUtil.getBusinessDate());
+        if (recalculatedModel != null) {
+            modelRepositoryWrapper.writeInterestScheduleModel(loan, recalculatedModel);
+        }
     }
 }

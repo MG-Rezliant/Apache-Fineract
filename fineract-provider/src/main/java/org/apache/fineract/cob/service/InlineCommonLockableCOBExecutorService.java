@@ -24,11 +24,14 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -45,9 +48,11 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.domain.ActionContext;
 import org.apache.fineract.infrastructure.core.exception.PlatformInternalServerException;
 import org.apache.fineract.infrastructure.core.exception.PlatformRequestBodyItemLimitValidationException;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
+import org.apache.fineract.infrastructure.core.serialization.ThrowableSerialization;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.data.JobParameterDTO;
@@ -55,17 +60,17 @@ import org.apache.fineract.infrastructure.jobs.domain.CustomJobParameterReposito
 import org.apache.fineract.infrastructure.jobs.exception.JobNotFoundException;
 import org.apache.fineract.infrastructure.jobs.service.InlineExecutorService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.infrastructure.springbatch.NextJobParametersResolver;
 import org.apache.fineract.infrastructure.springbatch.SpringBatchJobConstants;
 import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobParameter;
-import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.core.JobParametersBuilder;
-import org.springframework.batch.core.configuration.JobLocator;
-import org.springframework.batch.core.explore.JobExplorer;
-import org.springframework.batch.core.launch.JobLauncher;
-import org.springframework.batch.core.launch.NoSuchJobException;
+import org.springframework.batch.core.configuration.JobRegistry;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameter;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -77,9 +82,9 @@ public abstract class InlineCommonLockableCOBExecutorService<T extends AccountLo
     private static final String JOB_EXECUTION_FAILED_MESSAGE = "Job execution failed for job with name: ";
     private final AccountLockRepository<T> loanAccountLockRepository;
     private final InlineLoanCOBExecutionDataParser dataParser;
-    private final JobLauncher jobLauncher;
-    private final JobLocator jobLocator;
-    private final JobExplorer jobExplorer;
+    private final JobOperator jobOperator;
+    private final JobRegistry jobRegistry;
+    private final JobRepository jobRepository;
     private final TransactionTemplate requiresNewTransactionTemplate;
     private final CustomJobParameterRepository customJobParameterRepository;
     private final PlatformSecurityContext context;
@@ -130,25 +135,96 @@ public abstract class InlineCommonLockableCOBExecutorService<T extends AccountLo
 
     @SuppressFBWarnings("SLF4J_SIGN_ONLY_FORMAT")
     private void execute(List<Long> loanIds, String jobName, LocalDate businessDate) {
-        lockLoanAccounts(loanIds, businessDate);
-        Job inlineLoanCOBJob;
+        HashMap<BusinessDateType, LocalDate> originalBusinessDates = new HashMap<>(ThreadLocalContextUtil.getBusinessDates());
+        ActionContext originalActionContext = ThreadLocalContextUtil.getActionContext();
+        Map<Long, AccountLockAttempt> lockAttempts = Collections.emptyMap();
+        boolean markLocksOnFailure = true;
         try {
-            inlineLoanCOBJob = jobLocator.getJob(jobName);
-        } catch (NoSuchJobException e) {
-            throw new JobNotFoundException(jobName, e);
-        }
-        JobParameters jobParameters = new JobParametersBuilder(jobExplorer).getNextJobParameters(inlineLoanCOBJob)
-                .addJobParameters(new JobParameters(getJobParametersMap(loanIds, businessDate))).toJobParameters();
-        JobExecution jobExecution;
-        try {
-            jobExecution = jobLauncher.run(inlineLoanCOBJob, jobParameters);
-        } catch (Exception e) {
+            lockAttempts = lockLoanAccounts(loanIds, businessDate);
+            Job inlineLoanCOBJob = jobRegistry.getJob(jobName);
+            if (inlineLoanCOBJob == null) {
+                throw new JobNotFoundException(jobName);
+            }
+            JobParameters jobParameters = new JobParametersBuilder(NextJobParametersResolver.resolve(jobRepository, inlineLoanCOBJob))
+                    .addJobParameters(new JobParameters(new HashSet<>(getJobParametersMap(loanIds, businessDate).values())))
+                    .toJobParameters();
+            JobExecution jobExecution;
+            try {
+                // No incrementer on the job (see NextJobParametersResolver), so start(..) respects these parameters.
+                jobExecution = jobOperator.start(inlineLoanCOBJob, jobParameters);
+            } catch (Exception e) {
+                throw propagate(e, jobName);
+            }
+            if (!BatchStatus.COMPLETED.equals(jobExecution.getStatus())) {
+                markLocksOnFailure = !jobExecution.getStatus().isRunning();
+                throw propagate(resolveJobExecutionFailure(jobExecution, jobName), jobName);
+            }
+        } catch (RuntimeException | Error e) {
+            if (markLocksOnFailure && !lockAttempts.isEmpty()) {
+                markResidualLocksWithError(lockAttempts, jobName, e);
+            }
             log.error("{}{}", JOB_EXECUTION_FAILED_MESSAGE, jobName, e);
-            throw new PlatformInternalServerException("error.msg.sheduler.job.execution.failed", JOB_EXECUTION_FAILED_MESSAGE, jobName, e);
+            throw e;
+        } finally {
+            ThreadLocalContextUtil.setBusinessDates(originalBusinessDates);
+            ThreadLocalContextUtil.setActionContext(originalActionContext);
         }
-        if (!BatchStatus.COMPLETED.equals(jobExecution.getStatus())) {
-            log.error("{}{}", JOB_EXECUTION_FAILED_MESSAGE, jobName);
-            throw new PlatformInternalServerException("error.msg.sheduler.job.execution.failed", JOB_EXECUTION_FAILED_MESSAGE, jobName);
+    }
+
+    private Throwable resolveJobExecutionFailure(JobExecution jobExecution, String jobName) {
+        List<Throwable> failures = jobExecution.getAllFailureExceptions();
+        if (!failures.isEmpty()) {
+            Class<? extends Throwable>[] retryExceptions = getRetryExceptions();
+            if (retryExceptions != null) {
+                Optional<Throwable> retryableFailure = failures.stream().filter(failure -> Arrays.stream(retryExceptions)
+                        .anyMatch(retryException -> retryException.isAssignableFrom(failure.getClass()))).findFirst();
+                if (retryableFailure.isPresent()) {
+                    return retryableFailure.get();
+                }
+            }
+            return failures.getFirst();
+        }
+        return new PlatformInternalServerException("error.msg.sheduler.job.execution.failed", JOB_EXECUTION_FAILED_MESSAGE, jobName);
+    }
+
+    private Class<? extends Throwable>[] getRetryExceptions() {
+        FineractProperties.RetryProperties retryProperties = fineractProperties.getRetry();
+        if (retryProperties == null || retryProperties.getInstances() == null
+                || retryProperties.getInstances().getExecuteCommand() == null) {
+            return null;
+        }
+        return retryProperties.getInstances().getExecuteCommand().getRetryExceptions();
+    }
+
+    private RuntimeException propagate(Throwable failure, String jobName) {
+        if (failure instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new PlatformInternalServerException("error.msg.sheduler.job.execution.failed", JOB_EXECUTION_FAILED_MESSAGE, jobName,
+                failure);
+    }
+
+    private void markResidualLocksWithError(Map<Long, AccountLockAttempt> lockAttempts, String jobName, Throwable failure) {
+        try {
+            requiresNewTransactionTemplate.executeWithoutResult(status -> {
+                String stacktrace = ThrowableSerialization.serialize(failure);
+                loanAccountLockRepository
+                        .findAllByLoanIdInAndLockOwner(new ArrayList<>(lockAttempts.keySet()), LockOwner.LOAN_INLINE_COB_PROCESSING)
+                        .stream().filter(lock -> StringUtils.isBlank(lock.getError()))
+                        .filter(lock -> lockAttempts.get(lock.getLoanId()).matches(lock)).forEach(lock -> {
+                            lock.setError("Inline COB execution failed for account (id: %d), job: %s".formatted(lock.getLoanId(), jobName),
+                                    stacktrace);
+                            loanAccountLockRepository.saveAndFlush(lock);
+                        });
+            });
+        } catch (RuntimeException lockUpdateFailure) {
+            log.error("Failed to record inline COB error on residual account locks for job: {}", jobName, lockUpdateFailure);
+            if (lockUpdateFailure != failure) {
+                failure.addSuppressed(lockUpdateFailure);
+            }
         }
     }
 
@@ -205,18 +281,22 @@ public abstract class InlineCommonLockableCOBExecutorService<T extends AccountLo
         Long businessDateJobParameterId = saveCustomJobParameter(COBConstant.BUSINESS_DATE_PARAMETER_NAME,
                 businessDate.format(DateTimeFormatter.ISO_DATE));
         Map<String, JobParameter<?>> jobParameterMap = new HashMap<>();
-        jobParameterMap.put(SpringBatchJobConstants.CUSTOM_JOB_PARAMETER_ID_KEY, new JobParameter<>(loanIdsJobParameterId, Long.class));
-        jobParameterMap.put(COBConstant.BUSINESS_DATE_PARAMETER_NAME, new JobParameter<>(businessDateJobParameterId, Long.class));
+        jobParameterMap.put(SpringBatchJobConstants.CUSTOM_JOB_PARAMETER_ID_KEY,
+                new JobParameter<>(SpringBatchJobConstants.CUSTOM_JOB_PARAMETER_ID_KEY, loanIdsJobParameterId, Long.class));
+        jobParameterMap.put(COBConstant.BUSINESS_DATE_PARAMETER_NAME,
+                new JobParameter<>(COBConstant.BUSINESS_DATE_PARAMETER_NAME, businessDateJobParameterId, Long.class));
         return jobParameterMap;
     }
 
-    private void lockLoanAccounts(List<Long> loanIds, LocalDate businessDate) {
+    private Map<Long, AccountLockAttempt> lockLoanAccounts(List<Long> loanIds, LocalDate businessDate) {
+        Map<Long, AccountLockAttempt> lockAttempts = new HashMap<>();
         requiresNewTransactionTemplate.executeWithoutResult(status -> {
             List<T> loanAccountLocks = getLoanAccountLocks(loanIds, businessDate);
             loanAccountLocks.forEach(loanAccountLock -> {
                 try {
                     loanAccountLock.setNewLockOwner(LockOwner.LOAN_INLINE_COB_PROCESSING);
-                    loanAccountLockRepository.saveAndFlush(loanAccountLock);
+                    T savedLock = loanAccountLockRepository.saveAndFlush(loanAccountLock);
+                    lockAttempts.put(savedLock.getLoanId(), new AccountLockAttempt(savedLock.getVersion()));
                 } catch (Exception e) {
                     log.error("Error updating lock on loan account. Locked loan ID: {}", loanAccountLock.getLoanId(), e);
                     throw new AccountLockCannotBeOverruledException(
@@ -224,6 +304,14 @@ public abstract class InlineCommonLockableCOBExecutorService<T extends AccountLo
                 }
             });
         });
+        return lockAttempts;
+    }
+
+    private record AccountLockAttempt(Long version) {
+
+        private boolean matches(AccountLock lock) {
+            return Objects.equals(version, lock.getVersion());
+        }
     }
 
     private boolean isLockOverrulable(T loanAccountLock) {

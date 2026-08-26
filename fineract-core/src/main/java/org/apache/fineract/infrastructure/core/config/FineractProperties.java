@@ -191,11 +191,18 @@ public class FineractProperties {
         private String jobName;
         private Integer chunkSize;
         private Integer partitionSize;
-        private Integer threadPoolCorePoolSize;
-        private Integer threadPoolMaxPoolSize;
-        private Integer threadPoolQueueCapacity;
+        // No thread-pool settings here on purpose. COB item processing is sequential by construction - the worker
+        // steps register no task executor at all - because concurrent item processing takes COB business step writes
+        // out of the chunk transaction (see FINERACT-2621). Exposing a pool size would offer an override for a
+        // correctness invariant, so the knob does not exist. Scale via partition-size and worker instances.
         private Integer retryLimit;
         private Integer pollInterval;
+        /**
+         * Maximum number of skipped items tolerated per step execution (per partition). Independent of chunk size on
+         * purpose - deriving it from chunk-size made fault tolerance a side effect of a sizing knob. Falls back to
+         * {@code chunkSize + 1} when unset, which is the historical behaviour.
+         */
+        private Integer skipLimit;
 
     }
 

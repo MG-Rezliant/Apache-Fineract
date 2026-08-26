@@ -19,9 +19,6 @@
 
 package org.apache.fineract.infrastructure.jobs.filter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.json.JsonReadFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -41,6 +38,7 @@ import org.apache.fineract.cob.loan.LoanCOBConstant;
 import org.apache.fineract.cob.service.InlineLoanCOBExecutorServiceImpl;
 import org.apache.fineract.cob.service.LoanAccountLockService;
 import org.apache.fineract.cob.service.RetrieveLoanIdService;
+import org.apache.fineract.commands.configuration.RetryConfigurationAssembler;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -51,16 +49,16 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 @RequiredArgsConstructor
 @Component
 @Conditional(LoanCOBEnabledCondition.class)
-public class LoanCOBFilterHelperImpl extends COBFilterApiMatcher implements LoanCOBFilterHelper, InitializingBean {
+public class LoanCOBFilterHelperImpl extends COBFilterApiMatcher implements LoanCOBFilterHelper {
 
     private final GLIMAccountInfoRepository glimAccountInfoRepository;
     private final LoanAccountLockService loanAccountLockService;
@@ -69,6 +67,7 @@ public class LoanCOBFilterHelperImpl extends COBFilterApiMatcher implements Loan
     private final LoanRepository loanRepository;
     private final FineractProperties fineractProperties;
     private final RetrieveLoanIdService retrieveIdService;
+    private final RetryConfigurationAssembler retryConfigurationAssembler;
 
     private final LoanRescheduleRequestRepository loanRescheduleRequestRepository;
 
@@ -191,12 +190,14 @@ public class LoanCOBFilterHelperImpl extends COBFilterApiMatcher implements Loan
         return loanIds;
     }
 
-    private Long getTopLevelLoanIdFromBatchRequest(BatchRequest batchRequest) throws JsonProcessingException {
+    private Long getTopLevelLoanIdFromBatchRequest(BatchRequest batchRequest) {
         String body = batchRequest.getBody();
         if (StringUtils.isNotBlank(body)) {
             JsonNode jsonNode = objectMapper.readTree(body);
             if (jsonNode.has("loanId")) {
-                return jsonNode.get("loanId").asLong();
+                // the body may hold an unresolved batch reference like "$.loanId"; Jackson 3 asLong() throws on
+                // non-numeric values while Jackson 2 returned 0, so keep the lenient behavior explicitly
+                return jsonNode.get("loanId").asLong(0);
             }
         }
         return null;
@@ -226,12 +227,8 @@ public class LoanCOBFilterHelperImpl extends COBFilterApiMatcher implements Loan
 
     @Override
     public void executeInlineCob(List<Long> loanIds) {
-        inlineLoanCOBExecutorService.execute(loanIds, LoanCOBConstant.INLINE_LOAN_COB_JOB_NAME);
-    }
-
-    @Override
-    public void afterPropertiesSet() throws Exception {
-        objectMapper.configure(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS.mappedFeature(), true);
+        retryConfigurationAssembler.getRetryConfigurationForExecuteCommand()
+                .executeRunnable(() -> inlineLoanCOBExecutorService.execute(loanIds, LoanCOBConstant.INLINE_LOAN_COB_JOB_NAME));
     }
 
 }
