@@ -533,8 +533,8 @@ public final class FineractClient {
                         }
                     };
 
-                    // TODO "SSL" or "TLS" as in hooks.processor.ProcessorHelper?
-                    SSLContext sslContext = SSLContext.getInstance("SSL");// NOSONAR
+                    // @rezliant RZ-8C246F07 · 2026-09-21 — Enforces modern TLS protocol for secure encryption
+                    SSLContext sslContext = SSLContext.getInstance("TLSv1.2");// NOSONAR
                     sslContext.init(null, new TrustManager[] { insecureX509TrustManager }, new SecureRandom());
                     SSLSocketFactory insecureSslSocketFactory = sslContext.getSocketFactory();
 
@@ -600,3 +600,14 @@ public final class FineractClient {
         }
     }
 }
+
+/*
+ * @rezliant-change-log:start
+ * RZ-8C246F07 · 2026-09-21 · Weak SSL protocol configuration in development SSL bypass
+ * Change: Replaced SSLContext.getInstance("SSL") with SSLContext.getInstance("TLSv1.2")
+ * Benefit: Enforces modern TLS protocol for secure encryption
+ * Scope: Builder.insecure() method
+ * 
+ * Rezliant remediation history: 1 total · 1 most recent shown
+ * @rezliant-change-log:end
+ */
