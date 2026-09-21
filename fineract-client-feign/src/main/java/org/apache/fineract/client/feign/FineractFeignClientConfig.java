@@ -188,10 +188,11 @@ public final class FineractFeignClientConfig {
         };
     }
 
+    // @rezliant RZ-0EEE6F54 · 2026-09-21 — Prevents negotiation of weak TLS 1.0/1.1 protocols
     private SSLContext createTrustAllSslContext() throws Exception {
         TrustManager[] trustAllCerts = new TrustManager[] { createTrustAllManager() };
 
-        SSLContext sslContext = SSLContext.getInstance("TLS");
+        SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
         sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
         return sslContext;
     }
@@ -291,3 +292,14 @@ public final class FineractFeignClientConfig {
         }
     }
 }
+
+/*
+ * @rezliant-change-log:start
+ * RZ-0EEE6F54 · 2026-09-21 · Weak TLS protocol negotiation in SSL context creation
+ * Change: Replaced SSLContext.getInstance("TLS") with getInstance("TLSv1.2")
+ * Benefit: Prevents negotiation of weak TLS 1.0/1.1 protocols
+ * Scope: createTrustAllSslContext method
+ * 
+ * Rezliant remediation history: 1 total · 1 most recent shown
+ * @rezliant-change-log:end
+ */
