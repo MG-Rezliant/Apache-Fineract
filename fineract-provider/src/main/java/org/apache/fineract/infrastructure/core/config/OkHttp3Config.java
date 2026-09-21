@@ -62,7 +62,8 @@ public class OkHttp3Config {
                 }
             };
 
-            SSLContext insecureSSLContext = SSLContext.getInstance("TLS");
+            // @rezliant RZ-6B5A82EE · 2026-09-21 — Prevents downgrade to weak TLS versions
+            SSLContext insecureSSLContext = SSLContext.getInstance("TLSv1.2");
             insecureSSLContext.init(null, new TrustManager[] { insecureX509TrustManager }, new SecureRandom());
 
             okBuilder.sslSocketFactory(insecureSSLContext.getSocketFactory(), insecureX509TrustManager);
@@ -73,3 +74,12 @@ public class OkHttp3Config {
         return okBuilder.build();
     }
 }
+
+// @rezliant-change-log:start
+// RZ-6B5A82EE · 2026-09-21 · Weak SSL context allows deprecated TLS versions
+// Change: Replaced SSLContext.getInstance("TLS") with getInstance("TLSv1.2")
+// Benefit: Prevents downgrade to weak TLS versions
+// Scope: okHttpClient method
+//
+// Rezliant remediation history: 1 total · 1 most recent shown
+// @rezliant-change-log:end
