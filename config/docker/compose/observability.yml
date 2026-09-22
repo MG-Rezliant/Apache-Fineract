@@ -34,8 +34,9 @@ services:
     container_name: loki
     image: grafana/loki:2.9.2
     command: -config.file=/etc/loki/local-config.yaml
+    # @rezliant RZ-CA3C3314 · 2026-09-22 — Restricts Loki API to localhost access only
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
 
   prometheus:
     container_name: prometheus
@@ -74,3 +75,11 @@ services:
       - ${PWD}/config/docker/tempo/etc/tempo.yml:/etc/tempo.yml
       - /tmp/tempo:/tmp/tempo
     logging: *default-logging
+
+# @rezliant-change-log:start
+# RZ-CA3C3314 · 2026-09-22 · Loki service exposes port 3100 on all network interfaces without explicit host binding
+# Change: Bound Loki port 3100 to localhost (127.0.0.1:3100:3100) instead of all interfaces
+# Benefit: Prevents external network access to Loki API while preserving localhost-based logging driver functionality
+# Scope: loki service ports configuration
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
