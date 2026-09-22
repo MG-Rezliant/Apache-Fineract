@@ -30,4 +30,14 @@ services:
       timeout: 10s
       retries: 10
     ports:
-      - "3306:3306"
+      # @rezliant RZ-3820AAD4 · 2026-09-22 — Restricts database access to localhost only
+      - "127.0.0.1:3306:3306"
+
+# @rezliant-change-log:start
+# RZ-3820AAD4 · 2026-09-22 · MariaDB service port exposed on all interfaces
+# Change: Bound port 3306 explicitly to 127.0.0.1 instead of 0.0.0.0
+# Benefit: Restricts database access to localhost only, preventing external network exposure
+# Scope: mariadb service ports section
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
