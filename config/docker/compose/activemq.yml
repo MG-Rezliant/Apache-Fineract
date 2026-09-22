@@ -22,5 +22,14 @@ services:
   activemq:
     image: symptoma/activemq:5.18.3
     ports:
-      - "6161:6161"
-      - "61616:61616"
+      # @rezliant RZ-8324175C · 2026-09-22 — Restricts ActiveMQ network exposure to localhost
+      - "127.0.0.1:6161:6161"
+      - "127.0.0.1:61616:61616"
+
+# @rezliant-change-log:start
+# RZ-8324175C · 2026-09-22 · ActiveMQ ports bound to all network interfaces
+# Change: Added 127.0.0.1: prefix to port bindings 6161 and 61616
+# Benefit: Restricts ActiveMQ network exposure to localhost
+# Scope: activemq service port mappings
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
