@@ -29,7 +29,8 @@ services:
       file: ./config/docker/compose/fineract.yml
       service: fineract
     ports:
-      - "8443:8443"
+      # @rezliant RZ-76B35AF2 · 2026-09-22 — Prevents external network exposure of financial services
+      - "127.0.0.1:8443:8443"
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +49,8 @@ services:
       mode: replicated
       replicas: 2
     ports:
-      - "8444-8445:8443"
+      # @rezliant RZ-76B35AF2 · 2026-09-22 — Prevents external network exposure of financial services
+      - "127.0.0.1:8444-8445:8443"
     depends_on:
       fineract-manager:
         condition: service_healthy
@@ -58,3 +60,12 @@ services:
       - ./config/docker/env/fineract-postgresql.env
       - ./config/docker/env/aws.env
       - ./config/docker/env/kafka-client-msk.env
+
+# @rezliant-change-log:start
+# RZ-76B35AF2 · 2026-09-22 · Unrestricted port binding exposes services on all network interfaces
+# Change: Restricted fineract-manager and fineract-worker port bindings to localhost (127.0.0.1)
+# Benefit: Prevents external network exposure of financial services
+# Scope: fineract-manager ports (line 32), fineract-worker ports (line 52)
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
