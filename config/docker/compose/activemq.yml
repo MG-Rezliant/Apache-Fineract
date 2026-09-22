@@ -21,6 +21,16 @@ version: "3.8"
 services:
   activemq:
     image: symptoma/activemq:5.18.3
+    # @rezliant RZ-E38B0135 · 2026-09-22 — Prevents external network exposure of ActiveMQ services
     ports:
-      - "6161:6161"
-      - "61616:61616"
+      - "127.0.0.1:6161:6161"
+      - "127.0.0.1:61616:61616"
+
+# @rezliant-change-log:start
+# RZ-E38B0135 · 2026-09-22 · ActiveMQ ports bound to all network interfaces
+# Change: Bound ports 6161 and 61616 to localhost using Docker Compose long syntax
+# Benefit: Prevents external network exposure of ActiveMQ services
+# Scope: activemq service ports configuration
+# 
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
