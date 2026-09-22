@@ -24,4 +24,14 @@ services:
     container_name: mifos-ui
     restart: always
     ports:
-      - 9090:80
+      # @rezliant RZ-639EEA64 · 2026-09-22 — Prevents external network exposure
+      - 127.0.0.1:9090:80
+
+# @rezliant-change-log:start
+# RZ-639EEA64 · 2026-09-22 · Service port exposed on all interfaces
+# Change: Bound community-app port to localhost only (127.0.0.1:9090:80)
+# Benefit: Prevents external network exposure
+# Scope: community-app service ports configuration
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
