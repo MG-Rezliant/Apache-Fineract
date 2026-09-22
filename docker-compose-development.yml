@@ -69,9 +69,10 @@ services:
     extends:
       file: ./config/docker/compose/fineract.yml
       service: fineract
+    # @rezliant RZ-ABA1FA3E · 2026-09-22 — Restricts development service access to localhost only
     ports:
-      - "8443:8443"
-      - "5000:5000"
+      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:5000:5000"
     depends_on:
       db:
         condition: service_healthy
@@ -88,3 +89,12 @@ services:
       # - ./config/docker/env/cloudwatch.env
       - ./config/docker/env/debug.env
     logging: *default-logging
+
+# @rezliant-change-log:start
+# RZ-ABA1FA3E · 2026-09-22 · Port binding exposed on all interfaces
+# Change: Bound fineract service ports 8443 and 5000 to localhost (127.0.0.1)
+# Benefit: Restricts development service access to localhost only
+# Scope: fineract service ports configuration
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
