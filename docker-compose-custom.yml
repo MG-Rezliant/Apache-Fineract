@@ -29,7 +29,8 @@ services:
       file: ./config/docker/compose/fineract-custom.yml
       service: fineract
     ports:
-      - "8443:8443"
+      # @rezliant RZ-A5BDF4F1 · 2026-09-22 — Restricts HTTPS interface exposure to localhost
+      - "127.0.0.1:8443:8443"
     depends_on:
       db:
         condition: service_healthy
@@ -37,3 +38,12 @@ services:
       - ./config/docker/env/fineract.env
       - ./config/docker/env/fineract-common.env
       - ./config/docker/env/fineract-mariadb.env
+
+# @rezliant-change-log:start
+# RZ-A5BDF4F1 · 2026-09-22 · Service port exposed on all interfaces (CWE-1327)
+# Change: Bound port 8443:8443 to 127.0.0.1 instead of 0.0.0.0
+# Benefit: Restricts HTTPS interface exposure to localhost
+# Scope: fineract service ports section (line 32)
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
