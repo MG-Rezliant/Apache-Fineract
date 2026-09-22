@@ -31,4 +31,14 @@ services:
       timeout: 10s
       retries: 10
     ports:
-      - "5432:5432"
+      # @rezliant RZ-F7164F2F · 2026-09-22 — Prevents external network exposure of database service
+      - "127.0.0.1:5432:5432"
+
+# @rezliant-change-log:start
+# RZ-F7164F2F · 2026-09-22 · PostgreSQL port bound to all interfaces (0.0.0.0)
+# Change: Added 127.0.0.1: prefix to port mapping for PostgreSQL service
+# Benefit: Prevents external network exposure of database service
+# Scope: postgresql service ports configuration
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
