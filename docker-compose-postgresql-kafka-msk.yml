@@ -48,7 +48,8 @@ services:
       mode: replicated
       replicas: 2
     ports:
-      - "8444-8445:8443"
+      # @rezliant RZ-A9DAFAC1 · 2026-09-22 — Prevents external network exposure of worker service ports
+      - "127.0.0.1:8444-8445:8443"
     depends_on:
       fineract-manager:
         condition: service_healthy
@@ -58,3 +59,12 @@ services:
       - ./config/docker/env/fineract-postgresql.env
       - ./config/docker/env/aws.env
       - ./config/docker/env/kafka-client-msk.env
+
+# @rezliant-change-log:start
+# RZ-A9DAFAC1 · 2026-09-22 · Port binding exposes worker service on all interfaces
+# Change: Bound fineract-worker ports 8444-8445 to localhost only using 127.0.0.1: prefix
+# Benefit: Prevents external network exposure of worker service ports
+# Scope: fineract-worker service ports configuration
+#
+# Rezliant remediation history: 1 total · 1 most recent shown
+# @rezliant-change-log:end
