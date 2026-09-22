@@ -27,18 +27,12 @@ import feign.hc5.ApacheHttp5Client;
 import feign.jackson.JacksonDecoder;
 import feign.jackson.JacksonEncoder;
 import feign.slf4j.Slf4jLogger;
-import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
-import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactory;
-import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactoryBuilder;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
 
@@ -60,7 +54,6 @@ public final class FineractFeignClientConfig {
     private final boolean debugEnabled;
     private final long connectionTimeToLive;
     private final TimeUnit connectionTimeToLiveUnit;
-    private final boolean disableSslVerification;
     private final int maxConnTotal;
     private final int maxConnPerRoute;
     private final long idleConnectionEvictionTime;
@@ -78,7 +71,6 @@ public final class FineractFeignClientConfig {
         this.debugEnabled = builder.debugEnabled;
         this.connectionTimeToLive = builder.connectionTimeToLive;
         this.connectionTimeToLiveUnit = builder.connectionTimeToLiveUnit;
-        this.disableSslVerification = builder.disableSslVerification;
         this.maxConnTotal = builder.maxConnTotal;
         this.maxConnPerRoute = builder.maxConnPerRoute;
         this.idleConnectionEvictionTime = builder.idleConnectionEvictionTime;
@@ -129,12 +121,6 @@ public final class FineractFeignClientConfig {
             PoolingHttpClientConnectionManagerBuilder connManagerBuilder = PoolingHttpClientConnectionManagerBuilder.create()
                     .setMaxConnTotal(maxConnTotal).setMaxConnPerRoute(maxConnPerRoute);
 
-            if (disableSslVerification) {
-                SSLContext sslContext = createTrustAllSslContext();
-                SSLConnectionSocketFactory sslSocketFactory = SSLConnectionSocketFactoryBuilder.create().setSslContext(sslContext).build();
-                connManagerBuilder.setSSLSocketFactory(sslSocketFactory);
-            }
-
             if (connectionTimeToLive > 0) {
                 connManagerBuilder.setConnectionTimeToLive(TimeValue.of(connectionTimeToLive, connectionTimeToLiveUnit));
             }
@@ -160,40 +146,10 @@ public final class FineractFeignClientConfig {
                     .connectionPool(new okhttp3.ConnectionPool(maxConnTotal, connectionTimeToLive > 0 ? connectionTimeToLive : 5,
                             connectionTimeToLive > 0 ? connectionTimeToLiveUnit : TimeUnit.MINUTES));
 
-            if (disableSslVerification) {
-                SSLContext sslContext = createTrustAllSslContext();
-                builder.sslSocketFactory(sslContext.getSocketFactory(), createTrustAllManager());
-                builder.hostnameVerifier((hostname, session) -> true);
-            }
-
             return new feign.okhttp.OkHttpClient(builder.build());
         } catch (Exception e) {
             throw new RuntimeException("Failed to create OkHttp client", e);
         }
-    }
-
-    private X509TrustManager createTrustAllManager() {
-        return new X509TrustManager() {
-
-            @Override
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
-
-            @Override
-            public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-
-            @Override
-            public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-        };
-    }
-
-    private SSLContext createTrustAllSslContext() throws Exception {
-        TrustManager[] trustAllCerts = new TrustManager[] { createTrustAllManager() };
-
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
-        return sslContext;
     }
 
     public static class Builder {
@@ -207,7 +163,6 @@ public final class FineractFeignClientConfig {
         private boolean debugEnabled = false;
         private long connectionTimeToLive = -1;
         private TimeUnit connectionTimeToLiveUnit = TimeUnit.MILLISECONDS;
-        private boolean disableSslVerification = false;
         private int maxConnTotal = 200;
         private int maxConnPerRoute = 20;
         private long idleConnectionEvictionTime = 30;
@@ -251,11 +206,6 @@ public final class FineractFeignClientConfig {
             return this;
         }
 
-        public Builder disableSslVerification(boolean disableSslVerification) {
-            this.disableSslVerification = disableSslVerification;
-            return this;
-        }
-
         public Builder maxConnTotal(int maxConnTotal) {
             this.maxConnTotal = maxConnTotal;
             return this;
@@ -291,3 +241,14 @@ public final class FineractFeignClientConfig {
         }
     }
 }
+
+/*
+ * @rezliant-change-log:start
+ * RZ-D2DBD8FB · 2026-09-22 · Trust-all X509TrustManager disables certificate validation
+ * Change: Removed disableSslVerification field, builder method, and insecure createTrustAllManager/createTrustAllSslContext methods
+ * Benefit: Prevents man-in-the-middle attacks by enforcing platform default TLS validation
+ * Scope: FineractFeignClientConfig class, createApacheHttpClient and createOkHttpClient methods
+ * 
+ * Rezliant remediation history: 1 total · 1 most recent shown
+ * @rezliant-change-log:end
+ */
